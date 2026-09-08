@@ -1,0 +1,610 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <AspNetCoreEnvironment>Production</AspNetCoreEnvironment>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Update="web.config">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Update="appsettings.Production.json">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="FirebaseAdmin" Version="3.1.0" />
+    <PackageReference Include="itext" Version="8.0.1" />
+    <PackageReference Include="itext.bouncy-castle-adapter" Version="8.0.1" />
+    <PackageReference Include="itext7" Version="8.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.19" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.11" />
+    <PackageReference Include="Oracle.EntityFrameworkCore" Version="8.23.60" />
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.7.0" />
+    <PackageReference Include="QRCoder" Version="1.4.1" />
+    <PackageReference Include="QuestPDF" Version="2024.12.3" />
+    <PackageReference Include="ReportViewerCore.NETCore" Version="15.1.8" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="wwwroot\Images\02005d18-e263-4482-b9dd-4fabca19e685_Dr Fariya General Surgeon253258337.png" />
+    <None Include="wwwroot\Images\1253440622.png" />
+    <None Include="wwwroot\Images\1253637248.png" />
+    <None Include="wwwroot\Images\17836160-9b8d-4960-8e36-b494a98def58_Dr Kashan Ud Din - diabetologist253310776.png" />
+    <None Include="wwwroot\Images\17836160-9b8d-4960-8e36-b494a98def58_Dr Kashan Ud Din - diabetologist253310776255136132.png" />
+    <None Include="wwwroot\Images\17836160-9b8d-4960-8e36-b494a98def58_Dr Kashan Ud Din - diabetologist254621854.png" />
+    <None Include="wwwroot\Images\185A5266252816129.JPG" />
+    <None Include="wwwroot\Images\185A5275252806029.JPG" />
+    <None Include="wwwroot\Images\185A5299252826273.JPG" />
+    <None Include="wwwroot\Images\185A5323253829792.JPG" />
+    <None Include="wwwroot\Images\185A5331253829792.JPG" />
+    <None Include="wwwroot\Images\185A5343252838301.JPG" />
+    <None Include="wwwroot\Images\1E0A7885255212153.JPG" />
+    <None Include="wwwroot\Images\1E0A7885255212153251411470.JPG" />
+    <None Include="wwwroot\Images\1E0A7885255212153255411771.JPG" />
+    <None Include="wwwroot\Images\1E0A7885255907261.JPG" />
+    <None Include="wwwroot\Images\1E0A7894251321701.JPG" />
+    <None Include="wwwroot\Images\1E0A7894251321701255459166.JPG" />
+    <None Include="wwwroot\Images\273531950_493434085472852_7659085893664026424_n254114351.jpg" />
+    <None Include="wwwroot\Images\273637196_493434148806179_6949901545637242056_n254208125.jpg" />
+    <None Include="wwwroot\Images\273656044_493434118806182_2152373009007892097_n254135139.jpg" />
+    <None Include="wwwroot\Images\56517c7f81ff94f715d07b0d71690f9e250401110.jpg" />
+    <None Include="wwwroot\Images\56517c7f81ff94f715d07b0d71690f9e252017801.jpg" />
+    <None Include="wwwroot\Images\7e0dcd60-c8fd-45b0-b719-5b851235b3f2_abdul basit253536438.png" />
+    <None Include="wwwroot\Images\7e0dcd60-c8fd-45b0-b719-5b851235b3f2_abdul basit254547079.png" />
+    <None Include="wwwroot\Images\7e0dcd60-c8fd-45b0-b719-5b851235b3f2_abdul basit254644884.png" />
+    <None Include="wwwroot\Images\93a27003-e016-4bdd-b93a-8ef71cd8b1da_Dr Naseem Munshi - Orthopedic253858771.png" />
+    <None Include="wwwroot\Images\abdul basit243359255.png" />
+    <None Include="wwwroot\Images\abdul basit243359255250934369.png" />
+    <None Include="wwwroot\Images\abdul basit250500395.png" />
+    <None Include="wwwroot\Images\ahsen255839932.png" />
+    <None Include="wwwroot\Images\ai-generative-portrait-of-confident-male-doctor-in-white-coat-and-stethoscope-standing-with-arms-crossed-and-looking-at-camera-photo255352173.jpg" />
+    <None Include="wwwroot\Images\all departments254320029.jpg" />
+    <None Include="wwwroot\Images\asim254553821.png" />
+    <None Include="wwwroot\Images\atif254542142.png" />
+    <None Include="wwwroot\Images\ayaz255910943.png" />
+    <None Include="wwwroot\Images\azeem255411937.png" />
+    <None Include="wwwroot\Images\bella255221476.png" />
+    <None Include="wwwroot\Images\blood bank253507874.jpg" />
+    <None Include="wwwroot\Images\blood bank255824065.jpg" />
+    <None Include="wwwroot\Images\call-bg252831557.jpg" />
+    <None Include="wwwroot\Images\cardiology250843715.png" />
+    <None Include="wwwroot\Images\cardiology252406988.jpg" />
+    <None Include="wwwroot\Images\cardiology252415075.png" />
+    <None Include="wwwroot\Images\cardiology252516805.jpg" />
+    <None Include="wwwroot\Images\cardiology253705289.jpg" />
+    <None Include="wwwroot\Images\cardiology255300778.jpg" />
+    <None Include="wwwroot\Images\contact-img %282%29253142128.png" />
+    <None Include="wwwroot\Images\cosmetic252551538.jpg" />
+    <None Include="wwwroot\Images\dania252308455.png" />
+    <None Include="wwwroot\Images\dania255700737.png" />
+    <None Include="wwwroot\Images\de salman ent253837050.png" />
+    <None Include="wwwroot\Images\dentist250319115.png" />
+    <None Include="wwwroot\Images\dentist255823996.jpg" />
+    <None Include="wwwroot\Images\derma250456613.jpg" />
+    <None Include="wwwroot\Images\diabetes250114100.jpg" />
+    <None Include="wwwroot\Images\DJI_0957254058232.JPG" />
+    <None Include="wwwroot\Images\DJI_0967250301777.JPG" />
+    <None Include="wwwroot\Images\DJI_0968254058237.JPG" />
+    <None Include="wwwroot\Images\doctors-hospital-design-superJumbo251824038.jpg" />
+    <None Include="wwwroot\Images\DqhhMbNXcAIgMsJ250345919.jpg" />
+    <None Include="wwwroot\Images\DqhhWVQW4AANLrN250403138.jpg" />
+    <None Include="wwwroot\Images\Dr Ahmed Ali - Orthopedic.png" />
+    <None Include="wwwroot\Images\Dr Ahmed Ali - Orthopedic253730095.png" />
+    <None Include="wwwroot\Images\Dr Ahsen Physio new251350469.png" />
+    <None Include="wwwroot\Images\dr aniqa250136516.png" />
+    <None Include="wwwroot\Images\dr aniqa253425171.png" />
+    <None Include="wwwroot\Images\dr aniqa253915985.png" />
+    <None Include="wwwroot\Images\Dr Arshad Pediatric.png" />
+    <None Include="wwwroot\Images\Dr Arshad Pediatric250628338.png" />
+    <None Include="wwwroot\Images\Dr Arshad Pediatric253211608.png" />
+    <None Include="wwwroot\Images\Dr Arshad Pediatric254636674.png" />
+    <None Include="wwwroot\Images\Dr Arshad Pediatric254654665.png" />
+    <None Include="wwwroot\Images\dr asim jaffery.png" />
+    <None Include="wwwroot\Images\dr asim jaffery252138543.png" />
+    <None Include="wwwroot\Images\dr asim jaffery253112786.png" />
+    <None Include="wwwroot\Images\dr asim jaffery253541763.png" />
+    <None Include="wwwroot\Images\dr asim jaffery254639211.png" />
+    <None Include="wwwroot\Images\dr asim jaffery255632566.png" />
+    <None Include="wwwroot\Images\dr asim252518336.png" />
+    <None Include="wwwroot\Images\dr asim254258801.png" />
+    <None Include="wwwroot\Images\Dr Atif javed - Urologist.png" />
+    <None Include="wwwroot\Images\Dr Atif javed - Urologist253131603.png" />
+    <None Include="wwwroot\Images\Dr Atif javed - Urologist253717725.png" />
+    <None Include="wwwroot\Images\Dr Atif javed - Urologist255711105.png" />
+    <None Include="wwwroot\Images\dr atif253943664.png" />
+    <None Include="wwwroot\Images\Dr Ayaz Physio251427606.png" />
+    <None Include="wwwroot\Images\Dr Azeem Ent250235158.png" />
+    <None Include="wwwroot\Images\dr azeem251918973.png" />
+    <None Include="wwwroot\Images\dr azeem254624071.png" />
+    <None Include="wwwroot\Images\dr basit252110741.png" />
+    <None Include="wwwroot\Images\dr basit255445542.png" />
+    <None Include="wwwroot\Images\Dr Bella - Interventional Cardiologist.png" />
+    <None Include="wwwroot\Images\Dr Bella - Interventional Cardiologist250105254.png" />
+    <None Include="wwwroot\Images\Dr Bella - Interventional Cardiologist250751985.png" />
+    <None Include="wwwroot\Images\Dr Bella - Interventional Cardiologist254011539.png" />
+    <None Include="wwwroot\Images\Dr Bella - Interventional Cardiologist255927576.png" />
+    <None Include="wwwroot\Images\Dr bella.png" />
+    <None Include="wwwroot\Images\dr bella251617908.png" />
+    <None Include="wwwroot\Images\dr bella252439504.png" />
+    <None Include="wwwroot\Images\Dr Dania Speech Speech251252087.png" />
+    <None Include="wwwroot\Images\Dr Dania Speech Speech253934965.png" />
+    <None Include="wwwroot\Images\dr faisal memon.png" />
+    <None Include="wwwroot\Images\dr faisal memon252441034.png" />
+    <None Include="wwwroot\Images\dr faisal253943664.png" />
+    <None Include="wwwroot\Images\Dr Faiz Pasha - Urologist243408766.png" />
+    <None Include="wwwroot\Images\Dr Faiz Pasha - Urologist243408766253153390.png" />
+    <None Include="wwwroot\Images\Dr Faiz Pasha - Urologist253951409.png" />
+    <None Include="wwwroot\Images\dr faiz253943664.png" />
+    <None Include="wwwroot\Images\DR fakhar un nisa Gynaecologist243415104.png" />
+    <None Include="wwwroot\Images\DR fakhar un nisa Gynaecologist243415104253144195.png" />
+    <None Include="wwwroot\Images\DR fakhar un nisa Gynaecologist251615759.png" />
+    <None Include="wwwroot\Images\DR fakhar un nisa Gynaecologist253545428.png" />
+    <None Include="wwwroot\Images\DR fakhar un nisa Gynaecologist253817725.png" />
+    <None Include="wwwroot\Images\DR fakhar un nisa Gynaecologist255230409.png" />
+    <None Include="wwwroot\Images\dr fakhar250004093.png" />
+    <None Include="wwwroot\Images\dr fakhar255519769.png" />
+    <None Include="wwwroot\Images\dr farhan cosmetic surgeon243422215.png" />
+    <None Include="wwwroot\Images\dr farhan cosmetic surgeon252729452.png" />
+    <None Include="wwwroot\Images\dr farhan cosmetic surgeon253024072.png" />
+    <None Include="wwwroot\Images\dr farhan cosmetic surgeon254705286.png" />
+    <None Include="wwwroot\Images\dr farhan cosmetic surgeon255212148.png" />
+    <None Include="wwwroot\Images\Dr Farhan Khan Cardiac Surgeon.png" />
+    <None Include="wwwroot\Images\Dr Farhan Khan Cardiac Surgeon250751985.png" />
+    <None Include="wwwroot\Images\Dr Farhan Khan Cardiac Surgeon251111200.png" />
+    <None Include="wwwroot\Images\dr farhan zahi253153072.png" />
+    <None Include="wwwroot\Images\dr farhan zahid253258390.png" />
+    <None Include="wwwroot\Images\dr farhan252439488.png" />
+    <None Include="wwwroot\Images\dr farhan252619376.png" />
+    <None Include="wwwroot\Images\Dr Fariya General Surgeon.png" />
+    <None Include="wwwroot\Images\Dr Fariya General Surgeon251851809.png" />
+    <None Include="wwwroot\Images\Dr Fariya General Surgeon252259038.png" />
+    <None Include="wwwroot\Images\Dr Fariya General Surgeon255421044.png" />
+    <None Include="wwwroot\Images\Dr fariya250121428.png" />
+    <None Include="wwwroot\Images\dr fariya251516617.png" />
+    <None Include="wwwroot\Images\dr fariya251652043.png" />
+    <None Include="wwwroot\Images\dr fariya252518320.png" />
+    <None Include="wwwroot\Images\dr fariya254258786.png" />
+    <None Include="wwwroot\Images\Dr fida252706757.png" />
+    <None Include="wwwroot\Images\Dr Fida253603798.png" />
+    <None Include="wwwroot\Images\Dr fida253843421.png" />
+    <None Include="wwwroot\Images\Dr Furqan - Paediatrics.png" />
+    <None Include="wwwroot\Images\Dr Furqan - Paediatrics253413744.png" />
+    <None Include="wwwroot\Images\Dr Furqan - Paediatrics254547069.png" />
+    <None Include="wwwroot\Images\Dr Furqan - Paediatrics254616124.png" />
+    <None Include="wwwroot\Images\Dr Furqan - Paediatrics255621355.png" />
+    <None Include="wwwroot\Images\dr furqan250915144.png" />
+    <None Include="wwwroot\Images\dr furqan254120358.png" />
+    <None Include="wwwroot\Images\dr humayu7n251745742.png" />
+    <None Include="wwwroot\Images\dr humayu7n251957030.png" />
+    <None Include="wwwroot\Images\dr humayu7n252138380.png" />
+    <None Include="wwwroot\Images\dr humayu7n253449786.png" />
+    <None Include="wwwroot\Images\Dr humayun General Physician.png" />
+    <None Include="wwwroot\Images\Dr humayun General Physician253452090.png" />
+    <None Include="wwwroot\Images\Dr Imran Munir General Surgeon.png" />
+    <None Include="wwwroot\Images\Dr Imran Munir General Surgeon250425862.png" />
+    <None Include="wwwroot\Images\Dr Imran Munir General Surgeon252037888.png" />
+    <None Include="wwwroot\Images\Dr Imran Munir General Surgeon254312758.png" />
+    <None Include="wwwroot\Images\Dr Imran Munir General Surgeon255813336.png" />
+    <None Include="wwwroot\Images\dr imran munir252518320.png" />
+    <None Include="wwwroot\Images\dr imran254258786.png" />
+    <None Include="wwwroot\Images\dr jalal akbar.png" />
+    <None Include="wwwroot\Images\dr jalal akbar250912484.png" />
+    <None Include="wwwroot\Images\dr jalal akbar254120358.png" />
+    <None Include="wwwroot\Images\dr jalal akbar255111223.png" />
+    <None Include="wwwroot\Images\Dr kamran Pervez Dental.png" />
+    <None Include="wwwroot\Images\Dr kamran Pervez Dental252313778.png" />
+    <None Include="wwwroot\Images\Dr kamran Pervez Dental253352582.png" />
+    <None Include="wwwroot\Images\dr kamran250105709.png" />
+    <None Include="wwwroot\Images\Dr Kashan Ud Din - diabetologist.png" />
+    <None Include="wwwroot\Images\Dr Kashan Ud Din - diabetologist250721225.png" />
+    <None Include="wwwroot\Images\Dr Kashan Ud Din - diabetologist252059090.png" />
+    <None Include="wwwroot\Images\Dr Kashan Ud Din - diabetologist253046183.png" />
+    <None Include="wwwroot\Images\dr kashan251835501.png" />
+    <None Include="wwwroot\Images\dr kashan253449770.png" />
+    <None Include="wwwroot\Images\dr kashan253800297.png" />
+    <None Include="wwwroot\Images\Dr kashan254024427.png" />
+    <None Include="wwwroot\Images\Dr Khurram - Urologist.png" />
+    <None Include="wwwroot\Images\Dr Khurram - Urologist253232981.png" />
+    <None Include="wwwroot\Images\Dr Khurram - Urologist254058639.png" />
+    <None Include="wwwroot\Images\Dr komal Physio New251202957.png" />
+    <None Include="wwwroot\Images\dr komal250401110.png" />
+    <None Include="wwwroot\Images\dr komal251947736.png" />
+    <None Include="wwwroot\Images\Dr maira physio new251315830.png" />
+    <None Include="wwwroot\Images\Dr Mashal252444111.png" />
+    <None Include="wwwroot\Images\Dr Mashal252706757.png" />
+    <None Include="wwwroot\Images\Dr Mashal253331224.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="wwwroot\Images\Dr Moeez Eye254755980.png" />
+    <None Include="wwwroot\Images\dr moeez255011324.png" />
+    <None Include="wwwroot\Images\dr moeez255626735.png" />
+    <None Include="wwwroot\Images\Dr Muslim Eye specialist.png" />
+    <None Include="wwwroot\Images\Dr Muslim Eye specialist254008378.png" />
+    <None Include="wwwroot\Images\dr muslim255011324.png" />
+    <None Include="wwwroot\Images\Dr Naseem Munshi - Orthopedic.png" />
+    <None Include="wwwroot\Images\Dr Naseem Munshi - Orthopedic253639878.png" />
+    <None Include="wwwroot\Images\dr naseem253247105.png" />
+    <None Include="wwwroot\Images\dr nazia250254107.png" />
+    <None Include="wwwroot\Images\dr nazia255519769.png" />
+    <None Include="wwwroot\Images\Dr NaziaGynaecology.png" />
+    <None Include="wwwroot\Images\Dr NaziaGynaecology251729112.png" />
+    <None Include="wwwroot\Images\Dr NaziaGynaecology255325668.png" />
+    <None Include="wwwroot\Images\Dr Obaid - Dermatology.png" />
+    <None Include="wwwroot\Images\Dr obaid.png" />
+    <None Include="wwwroot\Images\dr omar253247105.png" />
+    <None Include="wwwroot\Images\Dr omer chaudhry - ortho.png" />
+    <None Include="wwwroot\Images\Dr omer chaudhry - ortho253556458.png" />
+    <None Include="wwwroot\Images\Dr rehan mirza general physician.png" />
+    <None Include="wwwroot\Images\Dr rehan mirza general physician252137607.png" />
+    <None Include="wwwroot\Images\Dr rehan mirza general physician252321747.png" />
+    <None Include="wwwroot\Images\Dr rehan mirza general physician253201689.png" />
+    <None Include="wwwroot\Images\Dr rehan mirza general physician253904780.png" />
+    <None Include="wwwroot\Images\dr rehan251835516.png" />
+    <None Include="wwwroot\Images\dr rehan253449786.png" />
+    <None Include="wwwroot\Images\Dr Sadia Eye254339291.png" />
+    <None Include="wwwroot\Images\Dr Sadia Eye255627880.png" />
+    <None Include="wwwroot\Images\dr saira farhan253028258.png" />
+    <None Include="wwwroot\Images\Dr Saira Farhan253823640.png" />
+    <None Include="wwwroot\Images\Dr Saira Farhan255328721.png" />
+    <None Include="wwwroot\Images\dr salman butt.png" />
+    <None Include="wwwroot\Images\dr salman butt250919315.png" />
+    <None Include="wwwroot\Images\Dr Salman ENT250008147.png" />
+    <None Include="wwwroot\Images\dr salman ent253644340.png" />
+    <None Include="wwwroot\Images\dr salman ent253743313.png" />
+    <None Include="wwwroot\Images\dr salman251918988.png" />
+    <None Include="wwwroot\Images\dr shabnum.png" />
+    <None Include="wwwroot\Images\dr shabnum250254122.png" />
+    <None Include="wwwroot\Images\dr shabnum251651959.png" />
+    <None Include="wwwroot\Images\dr shabnum255429096.png" />
+    <None Include="wwwroot\Images\dr shabnum255558369.png" />
+    <None Include="wwwroot\Images\Dr shahid Gastro.png" />
+    <None Include="wwwroot\Images\Dr shahid Gastro252541847.png" />
+    <None Include="wwwroot\Images\dr shahid251109523.png" />
+    <None Include="wwwroot\Images\Dr Shakeel Neuro255009683.png" />
+    <None Include="wwwroot\Images\dr shakeel251706290.png" />
+    <None Include="wwwroot\Images\dr shakeel252017801.png" />
+    <None Include="wwwroot\Images\Dr Shazia Kazi Cardiology250532905.png" />
+    <None Include="wwwroot\Images\Dr Shazia Kazi Cardiology250751985.png" />
+    <None Include="wwwroot\Images\Dr Shazia Kazi Cardiology251346410.png" />
+    <None Include="wwwroot\Images\Dr shazia Kazi.png" />
+    <None Include="wwwroot\Images\dr shazia252439520.png" />
+    <None Include="wwwroot\Images\dr sidra.png" />
+    <None Include="wwwroot\Images\dr sidra251412501.png" />
+    <None Include="wwwroot\Images\dr sidra251625394.png" />
+    <None Include="wwwroot\Images\dr sidra251625394255256368.png" />
+    <None Include="wwwroot\Images\dr sidra251638404.png" />
+    <None Include="wwwroot\Images\dr sobia sabir.png" />
+    <None Include="wwwroot\Images\dr sobia sabir250254107.png" />
+    <None Include="wwwroot\Images\dr sobia sabir251811078.png" />
+    <None Include="wwwroot\Images\dr sobia sabir255401391.png" />
+    <None Include="wwwroot\Images\dr sobia sabir255558369.png" />
+    <None Include="wwwroot\Images\dr sulaiman250915144.png" />
+    <None Include="wwwroot\Images\dr sulaiman254120358.png" />
+    <None Include="wwwroot\Images\dr suleman250401125.png" />
+    <None Include="wwwroot\Images\dr suleman251947752.png" />
+    <None Include="wwwroot\Images\dr suliaman.png" />
+    <None Include="wwwroot\Images\dr suliaman255739572.png" />
+    <None Include="wwwroot\Images\Dr taimoor Pediatric surgeon.png" />
+    <None Include="wwwroot\Images\Dr taimoor Pediatric surgeon251421216.png" />
+    <None Include="wwwroot\Images\Dr tariq afzal.png" />
+    <None Include="wwwroot\Images\Dr tariq afzal251042945.png" />
+    <None Include="wwwroot\Images\Dr tariq afzal251245729.png" />
+    <None Include="wwwroot\Images\dr tariq251350211.png" />
+    <None Include="wwwroot\Images\Dr Urooj - Dermatologist.png" />
+    <None Include="wwwroot\Images\Dr Urooj - Dermatologist254814990.png" />
+    <None Include="wwwroot\Images\Dr urooj.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="wwwroot\Images\dr urooj251015036.png" />
+    <None Include="wwwroot\Images\Dr urooj251540859.png" />
+    <None Include="wwwroot\Images\Dr waqas burki dental copy250142322.png" />
+    <None Include="wwwroot\Images\Dr waqas burki dental new.png" />
+    <None Include="wwwroot\Images\Dr waqas burki dental new253300215.png" />
+    <None Include="wwwroot\Images\Dr waqas burki dental.png" />
+    <None Include="wwwroot\Images\dr waqas burki250105709.png" />
+    <None Include="wwwroot\Images\Dr waqas Rasheed pulmonologist.png" />
+    <None Include="wwwroot\Images\Dr waqas Rasheed pulmonologist252116400.png" />
+    <None Include="wwwroot\Images\Dr waqas Rasheed pulmonologist255919871.png" />
+    <None Include="wwwroot\Images\dr waqas255535289.png" />
+    <None Include="wwwroot\Images\Dr yasir Paracha Cardiology.png" />
+    <None Include="wwwroot\Images\Dr yasir Paracha Cardiology250146627.png" />
+    <None Include="wwwroot\Images\Dr yasir Paracha Cardiology250751985.png" />
+    <None Include="wwwroot\Images\Dr yasir Paracha Cardiology252707155.png" />
+    <None Include="wwwroot\Images\dr yasir252439504.png" />
+    <None Include="wwwroot\Images\dr yasir252619360.png" />
+    <None Include="wwwroot\Images\dr zahoor252017785.png" />
+    <None Include="wwwroot\Images\Dr Zahoor254856912.png" />
+    <None Include="wwwroot\Images\DSC00046250139891.JPG" />
+    <None Include="wwwroot\Images\DSC00108250238652.JPG" />
+    <None Include="wwwroot\Images\DSC00133254152467.JPG" />
+    <None Include="wwwroot\Images\DSC00209255351925.JPG" />
+    <None Include="wwwroot\Images\DSC00214254132582.JPG" />
+    <None Include="wwwroot\Images\DSC00214255255278.JPG" />
+    <None Include="wwwroot\Images\DSC00241255327932.JPG" />
+    <None Include="wwwroot\Images\DSC00302255927669.JPG" />
+    <None Include="wwwroot\Images\DSC00815250326922.JPG" />
+    <None Include="wwwroot\Images\DSC00843255942405.JPG" />
+    <None Include="wwwroot\Images\DSC02764250214648.JPG" />
+    <None Include="wwwroot\Images\DSC04617250059362.JPG" />
+    <None Include="wwwroot\Images\DSC05423251840246.png" />
+    <None Include="wwwroot\Images\DSC05425252053746.JPG" />
+    <None Include="wwwroot\Images\DSC05425252138833.JPG" />
+    <None Include="wwwroot\Images\DSC05425252353439.JPG" />
+    <None Include="wwwroot\Images\DSC05427252025154.JPG" />
+    <None Include="wwwroot\Images\DSC05427252041245.JPG" />
+    <None Include="wwwroot\Images\DSC05428251852428.JPG" />
+    <None Include="wwwroot\Images\DSC05435251913982.JPG" />
+    <None Include="wwwroot\Images\DSC05606250046243.JPG" />
+    <None Include="wwwroot\Images\DSC05607250014213.JPG" />
+    <None Include="wwwroot\Images\DSC05624253759525.JPG" />
+    <None Include="wwwroot\Images\DSC05628250128644.JPG" />
+    <None Include="wwwroot\Images\DSC05630255743330.JPG" />
+    <None Include="wwwroot\Images\DSC05632 copy255938269.jpg" />
+    <None Include="wwwroot\Images\DSC05632250104317.JPG" />
+    <None Include="wwwroot\Images\DSC05633254204770.JPG" />
+    <None Include="wwwroot\Images\DSC05639255720299.JPG" />
+    <None Include="wwwroot\Images\DSC05642250000122.JPG" />
+    <None Include="wwwroot\Images\DSC05642252756519.JPG" />
+    <None Include="wwwroot\Images\DSC05646250043083.JPG" />
+    <None Include="wwwroot\Images\DSC05646254715291.JPG" />
+    <None Include="wwwroot\Images\DSC05650255704198.JPG" />
+    <None Include="wwwroot\Images\DSC06453254304587.JPG" />
+    <None Include="wwwroot\Images\DSC06455254443278.JPG" />
+    <None Include="wwwroot\Images\DSC06459254457891.JPG" />
+    <None Include="wwwroot\Images\DSC06460254353885.JPG" />
+    <None Include="wwwroot\Images\DSC06462254430582.JPG" />
+    <None Include="wwwroot\Images\DSC06464254410276.JPG" />
+    <None Include="wwwroot\Images\DSC06464254512112.JPG" />
+    <None Include="wwwroot\Images\DSC06469254526344.JPG" />
+    <None Include="wwwroot\Images\DummyPic.jpg" />
+    <None Include="wwwroot\Images\DYLASIS253918660.jpg" />
+    <None Include="wwwroot\Images\electricity253518380.png" />
+    <None Include="wwwroot\Images\emergency252824230.jpg" />
+    <None Include="wwwroot\Images\ent251213469.jpg" />
+    <None Include="wwwroot\Images\ent251244723.jpg" />
+    <None Include="wwwroot\Images\ENT251348301.jpg" />
+    <None Include="wwwroot\Images\ENT251432727.jpg" />
+    <None Include="wwwroot\Images\Ent255725752.jpg" />
+    <None Include="wwwroot\Images\eye specialist253037915.png" />
+    <None Include="wwwroot\Images\eye250255933.jpg" />
+    <None Include="wwwroot\Images\eye250342111.jpg" />
+    <None Include="wwwroot\Images\faisal254528554.png" />
+    <None Include="wwwroot\Images\faiz254619461.png" />
+    <None Include="wwwroot\Images\fakhar255714441.png" />
+    <None Include="wwwroot\Images\farhan khan255302860.png" />
+    <None Include="wwwroot\Images\farhan zahid254824019.png" />
+    <None Include="wwwroot\Images\fariya254326902.png" />
+    <None Include="wwwroot\Images\fida253123226.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="wwwroot\Images\furqan254839335.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="wwwroot\Images\gastro250000872.jpg" />
+    <None Include="wwwroot\Images\gastro250805619.png" />
+    <None Include="wwwroot\Images\general medicine250130074.jpg" />
+    <None Include="wwwroot\Images\general medicine252155947.png" />
+    <None Include="wwwroot\Images\general surgery.jpg252642144.png" />
+    <None Include="wwwroot\Images\general surgery251804404.jpg" />
+    <None Include="wwwroot\Images\general surgery252836263.jpg" />
+    <None Include="wwwroot\Images\general surgery253025000.jpg" />
+    <None Include="wwwroot\Images\general surgery253140041.jpg" />
+    <None Include="wwwroot\Images\general surgery253245974.jpg" />
+    <None Include="wwwroot\Images\general surgery253405442.jpg" />
+    <None Include="wwwroot\Images\general surgery253545717.jpg" />
+    <None Include="wwwroot\Images\general surgery253718939.jpg" />
+    <None Include="wwwroot\Images\gynae255532366.jpg" />
+    <None Include="wwwroot\Images\Gynecology-Obstetrics250715276.jpg" />
+    <None Include="wwwroot\Images\HosAfilated250601687.png" />
+    <None Include="wwwroot\Images\humayun255339918.png" />
+    <None Include="wwwroot\Images\images %283%29255745760.jpeg" />
+    <None Include="wwwroot\Images\images %284%29254052881.jpeg" />
+    <None Include="wwwroot\Images\images %284%29254232251.jpeg" />
+    <None Include="wwwroot\Images\IMG_1672254205740.JPG" />
+    <None Include="wwwroot\Images\IMG_20221219_125702254928996.jpg" />
+    <None Include="wwwroot\Images\IMG_20221219_125810254926642.jpg" />
+    <None Include="wwwroot\Images\imran254607660.png" />
+    <None Include="wwwroot\Images\kamran250156331.png" />
+    <None Include="wwwroot\Images\kashan254517353.png" />
+    <None Include="wwwroot\Images\komal physio250055716.png" />
+    <None Include="wwwroot\Images\komal252811283.png" />
+    <None Include="wwwroot\Images\komal254701308.png" />
+    <None Include="wwwroot\Images\lab252543770.jpg" />
+    <None Include="wwwroot\Images\maira255808473.png" />
+    <None Include="wwwroot\Images\mashal253123210.png" />
+    <None Include="wwwroot\Images\moeez250312116.png" />
+    <None Include="wwwroot\Images\moeez251956953.png" />
+    <None Include="wwwroot\Images\moeez253341228.png" />
+    <None Include="wwwroot\Images\moeez254959157.png" />
+    <None Include="wwwroot\Images\moeez255523038.png" />
+    <None Include="wwwroot\Images\Ms Komal Psychology252346762.jpg" />
+    <None Include="wwwroot\Images\Ms Komal psychology252814084.png" />
+    <None Include="wwwroot\Images\Ms Zareen Imam Nutritionist.png" />
+    <None Include="wwwroot\Images\Ms Zareen Imam Nutritionist253501732.png" />
+    <None Include="wwwroot\Images\muslim250258080.png" />
+    <None Include="wwwroot\Images\muslim255502412.png" />
+    <None Include="wwwroot\Images\naseem250232773.png" />
+    <None Include="wwwroot\Images\nazia250057010.png" />
+    <None Include="wwwroot\Images\neuro250932582.jpg" />
+    <None Include="wwwroot\Images\neuro251325970.jpg" />
+    <None Include="wwwroot\Images\neuro255636596.jpg" />
+    <None Include="wwwroot\Images\nicu251357944.jpg" />
+    <None Include="wwwroot\Images\nicu253548799.jpg" />
+    <None Include="wwwroot\Images\noimage253451550.jpg" />
+    <None Include="wwwroot\Images\NoImagePic251511151.png" />
+    <None Include="wwwroot\Images\nutritionist252209759.jpg" />
+    <None Include="wwwroot\Images\nutritionist254234896.jpg" />
+    <None Include="wwwroot\Images\ooking-ahead-the-outlook-for-australias-private-hospitals251824038.jpg" />
+    <None Include="wwwroot\Images\Ophthalmology252926321.png" />
+    <None Include="wwwroot\Images\opthalmology252724642.png" />
+    <None Include="wwwroot\Images\ortho253559113.jpg" />
+    <None Include="wwwroot\Images\orthopedic.jpg252741359.png" />
+    <None Include="wwwroot\Images\orthopedic252931680.jpg" />
+    <None Include="wwwroot\Images\packages-slider252803365.png" />
+    <None Include="wwwroot\Images\packages254940919.jpg" />
+    <None Include="wwwroot\Images\peads eye250542770.jpg" />
+    <None Include="wwwroot\Images\peads eye250628173.jpg" />
+    <None Include="wwwroot\Images\peads eye255232293.png" />
+    <None Include="wwwroot\Images\peads eye255330713.png" />
+    <None Include="wwwroot\Images\peads eye255418858.png" />
+    <None Include="wwwroot\Images\peads253611469.png" />
+    <None Include="wwwroot\Images\peads254938798.jpg" />
+    <None Include="wwwroot\Images\peads255105980.jpg" />
+    <None Include="wwwroot\Images\peads255413997.jpg" />
+    <None Include="wwwroot\Images\Pediatrics_1253344514.jpg" />
+    <None Include="wwwroot\Images\Pediatrics_2250839271.jpg" />
+    <None Include="wwwroot\Images\Pediatrics_3254918990.jpg" />
+    <None Include="wwwroot\Images\physician-icon-png-15311252119638.png" />
+    <None Include="wwwroot\Images\physician-icon-png-15311253018654.png" />
+    <None Include="wwwroot\Images\physio251823771.jpg" />
+    <None Include="wwwroot\Images\physio255732136.jpg" />
+    <None Include="wwwroot\Images\physio255957797.jpg" />
+    <None Include="wwwroot\Images\premium_photo-1682130157004-057c137d96d5251824038.jfif" />
+    <None Include="wwwroot\Images\psychiatry-banner255442419.jpg" />
+    <None Include="wwwroot\Images\psychiatry253108602.jpg" />
+    <None Include="wwwroot\Images\psychiatry253244168.jpg" />
+    <None Include="wwwroot\Images\psycho255715681.jpg" />
+    <None Include="wwwroot\Images\pulmo255121972.jpg" />
+    <None Include="wwwroot\Images\pulmo255640174.jpg" />
+    <None Include="wwwroot\Images\radio254128492.jpg" />
+    <None Include="wwwroot\Images\Radiology_1252831557.jpg" />
+    <None Include="wwwroot\Images\Radiology_2250118110.jpg" />
+    <None Include="wwwroot\Images\Radiology_2251713046.jpg" />
+    <None Include="wwwroot\Images\Radiology_2251959678.jpg" />
+    <None Include="wwwroot\Images\Radiology_2251959678253555327.jpg" />
+    <None Include="wwwroot\Images\Radiology_2252028164.jpg" />
+    <None Include="wwwroot\Images\Radiology_2254933903.jpg" />
+    <None Include="wwwroot\Images\Radiology_2255245708.jpg" />
+    <None Include="wwwroot\Images\Radiology_2255317439.jpg" />
+    <None Include="wwwroot\Images\Radiology_2255442101.jpg" />
+    <None Include="wwwroot\Images\Radiology_2255443144.jpg" />
+    <None Include="wwwroot\Images\Radiology_2255443146.jpg" />
+    <None Include="wwwroot\Images\Radiology_7250839271.jpg" />
+    <None Include="wwwroot\Images\Radiology_7252831557.jpg" />
+    <None Include="wwwroot\Images\rehan250434947.png" />
+    <None Include="wwwroot\Images\rehan255359002.png" />
+    <None Include="wwwroot\Images\sadia255825790.png" />
+    <None Include="wwwroot\Images\saira254638399.png" />
+    <None Include="wwwroot\Images\saira254844252.png" />
+    <None Include="wwwroot\Images\saira255540041.png" />
+    <None Include="wwwroot\Images\salman254639145.png" />
+    <None Include="wwwroot\Images\shahid250126183.png" />
+    <None Include="wwwroot\Images\shakeel255515765.png" />
+    <None Include="wwwroot\Images\shazia253554895.png" />
+    <None Include="wwwroot\Images\shazia255249846.png" />
+    <None Include="wwwroot\Images\shubnam255728751.png" />
+    <None Include="wwwroot\Images\slider-ent254924769.png" />
+    <None Include="wwwroot\Images\slider-ent255157619.png" />
+    <None Include="wwwroot\Images\slider-ent255157619255248550.png" />
+    <None Include="wwwroot\Images\slider-ER252914466.png" />
+    <None Include="wwwroot\Images\slider-ER254627290.png" />
+    <None Include="wwwroot\Images\slider-ER254658592.png" />
+    <None Include="wwwroot\Images\slider-inner accom255231317.jpg" />
+    <None Include="wwwroot\Images\slider-inner addmision new253146695.jpg" />
+    <None Include="wwwroot\Images\slider-inner addmision252930354.jpg" />
+    <None Include="wwwroot\Images\slider-inner addmision253428738.jpg" />
+    <None Include="wwwroot\Images\slider-inner addmision253505949.jpg" />
+    <None Include="wwwroot\Images\slider-inner appointment251531801.jpg" />
+    <None Include="wwwroot\Images\slider-inner appointment251620859.jpg" />
+    <None Include="wwwroot\Images\slider-inner career253212385.jpg" />
+    <None Include="wwwroot\Images\slider-inner career253342535.jpg" />
+    <None Include="wwwroot\Images\slider-inner career255417941.jpg" />
+    <None Include="wwwroot\Images\slider-inner home sample252333940.jpg" />
+    <None Include="wwwroot\Images\slider-inner home sample255529548.jpg" />
+    <None Include="wwwroot\Images\slider-inner hospital253214083.jpg" />
+    <None Include="wwwroot\Images\slider-inner hospital253810960.jpg" />
+    <None Include="wwwroot\Images\slider-inner infection control253026147.jpg" />
+    <None Include="wwwroot\Images\slider-inner opd sch250556087.jpg" />
+    <None Include="wwwroot\Images\slider-inner opd sch251202405.jpg" />
+    <None Include="wwwroot\Images\slider-inner patient care250218390.jpg" />
+    <None Include="wwwroot\Images\slider-inner visit250802691.jpg" />
+    <None Include="wwwroot\Images\slider-lab254524501.png" />
+    <None Include="wwwroot\Images\slider-neuro255429364.png" />
+    <None Include="wwwroot\Images\slider-neuro255429364250437368.png" />
+    <None Include="wwwroot\Images\slider-neuro255429364250544910.png" />
+    <None Include="wwwroot\Images\slider-neuro255429364254900816.png" />
+    <None Include="wwwroot\Images\slider-neuro255544396.png" />
+    <None Include="wwwroot\Images\slider-neuro255544396250233840.png" />
+    <None Include="wwwroot\Images\slider-nutri255526000.png" />
+    <None Include="wwwroot\Images\slider-nutri255824151.png" />
+    <None Include="wwwroot\Images\slider-physio250724859.png" />
+    <None Include="wwwroot\Images\slider252831557.jpg" />
+    <None Include="wwwroot\Images\sliderh cardica253624925.jpg" />
+    <None Include="wwwroot\Images\sobia250109560.png" />
+    <None Include="wwwroot\Images\speech252306725.jpg" />
+    <None Include="wwwroot\Images\speech252349373.jpg" />
+    <None Include="wwwroot\Images\speech252423640.jpg" />
+    <None Include="wwwroot\Images\speech252504453.jpg" />
+    <None Include="wwwroot\Images\spirometry241335661.jpg" />
+    <None Include="wwwroot\Images\spirometry241335661255256381.jpg" />
+    <None Include="wwwroot\Images\spirometry241341061.jpg" />
+    <None Include="wwwroot\Images\spirometry241851587.jpg" />
+    <None Include="wwwroot\Images\sulaiman250233783.png" />
+    <None Include="wwwroot\Images\sulaiman254858621.png" />
+    <None Include="wwwroot\Images\tariq255322711.png" />
+    <None Include="wwwroot\Images\Tuberculosis-Blog-Banner-700x300px250025088.jpg" />
+    <None Include="wwwroot\Images\umer250212169.png" />
+    <None Include="wwwroot\Images\Urology255632255.jpg" />
+    <None Include="wwwroot\Images\Urology255858949.jpg" />
+    <None Include="wwwroot\Images\urooj250324482.png" />
+    <None Include="wwwroot\Images\vacination center255025887.jpg" />
+    <None Include="wwwroot\Images\waqas pulmo254919465.png" />
+    <None Include="wwwroot\Images\WhatsApp Image 2025-03-12 at 9.53.01 AM %281%29252005120.jpeg" />
+    <None Include="wwwroot\Images\WhatsApp Image 2025-03-12 at 9.53.02 AM %281%29252005120.jpeg" />
+    <None Include="wwwroot\Images\WhatsApp Image 2025-03-12 at 9.53.02 AM %281%29253458814.jpeg" />
+    <None Include="wwwroot\Images\WhatsApp Image 2025-03-12 at 9.53.02 AM %281%29253650543.jpeg" />
+    <None Include="wwwroot\Images\WhatsApp Image 2025-03-12 at 9.53.02 AM %282%29252005120.jpeg" />
+    <None Include="wwwroot\Images\WhatsApp Image 2025-03-12 at 9.53.03 AM252005120.jpeg" />
+    <None Include="wwwroot\Images\WhatsApp Image 2025-03-12 at 9.53.03 AM253650543.jpeg" />
+    <None Include="wwwroot\Images\WhatsApp Image 2025-03-12 at 9.53.04 AM253650543.jpeg" />
+    <None Include="wwwroot\Images\WhatsApp Image 2025-03-12 at 9.53.05 AM253458814.jpeg" />
+    <None Include="wwwroot\Images\yasir255236512.png" />
+    <None Include="wwwroot\Images\zahoor255502852.png" />
+    <None Include="wwwroot\Images\_MG_5707251418347.JPG">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="wwwroot\Images\_MG_5727251507895.JPG" />
+    <None Include="wwwroot\Images\_MG_5727253759521.JPG" />
+    <None Include="wwwroot\Images\_MG_5727253759521251452312.JPG" />
+    <None Include="wwwroot\Images\_MG_5729255624042.JPG" />
+    <None Include="wwwroot\Images\_MG_6458255829970.JPG" />
+    <None Include="wwwroot\Images\_MG_6459255845539.JPG" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Images\BG.jpg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Images\Logo.jpg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Reports\GastRpt.rdlc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Reports\Labrpt.rdlc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Reports\PRESCRIPTION_A4.rdlc">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Images\" />
+  </ItemGroup>
+
+</Project>
