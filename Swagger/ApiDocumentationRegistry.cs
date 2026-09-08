@@ -519,6 +519,280 @@ namespace HospitalMobileAPPApi.Swagger
                           }
                         }
                         """),
+
+                ["Auth_SendRegistrationOtp"] = new(
+                    summary: "Send registration OTP",
+                    description: """
+                        Sends a 6-digit OTP to any phone number for the **new account registration** flow.
+                        Unlike `send-otp`, this works for phones not yet in HMIS.
+
+                        **Flow:** `send-registration-otp` → `register` with OTP → `setup` profile if required.
+                        """,
+                    responseExample: """
+                        {
+                          "success": true,
+                          "message": "Registration OTP sent successfully",
+                          "expiresInMinutes": 2
+                        }
+                        """,
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["phoneNumber"] = "Mobile number to register (e.g. 03001234567).",
+                    }),
+
+                ["Auth_Register"] = new(
+                    summary: "Register new patient portal account",
+                    description: """
+                        Creates a portal account after OTP verification.
+
+                        - **Existing HMIS patient:** links phone/MR and sets portal password.
+                        - **New patient:** creates a provisional MR (`MOB-00000001`) until linked to HMIS.
+
+                        Returns JWT token immediately — navigate to profile setup when `profileSetupRequired` is true.
+                        """,
+                    requestExample: """
+                        {
+                          "phoneNumber": "03001234567",
+                          "firstName": "Ali",
+                          "lastName": "Khan",
+                          "password": "secret123",
+                          "confirmPassword": "secret123",
+                          "acceptTerms": true,
+                          "otp": "123456"
+                        }
+                        """,
+                    responseExample: """
+                        {
+                          "success": true,
+                          "message": "Registration successful",
+                          "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                          "tokenType": "Bearer",
+                          "expiresAt": "2026-03-08T18:30:00Z",
+                          "expiresInSeconds": 5700,
+                          "mrNo": "010-002-152",
+                          "firstName": "Ali",
+                          "profileSetupRequired": true,
+                          "isExistingHmisPatient": true
+                        }
+                        """),
+
+                ["Patient_SetupProfile"] = new(
+                    summary: "Complete first-time profile setup",
+                    description: """
+                        Completes demographics after registration: CNIC, DOB, gender, blood group, email.
+                        Required when `profileSetupRequired` is true after `register`.
+                        """,
+                    requestExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "firstName": "Ali",
+                          "lastName": "Khan",
+                          "cnic": "3520212345671",
+                          "dateOfBirth": "1990-05-15T00:00:00",
+                          "gender": "M",
+                          "bloodGroup": "O+",
+                          "email": "ali@example.com"
+                        }
+                        """,
+                    responseExample: """
+                        {
+                          "success": true,
+                          "message": "Profile setup completed",
+                          "profileSetupRequired": false,
+                          "profile": {
+                            "mrNo": "010-002-152",
+                            "firstName": "Ali",
+                            "lastName": "Khan",
+                            "gender": "M",
+                            "dateOfBirth": "1990-05-15T00:00:00",
+                            "cnic": "3520212345671",
+                            "bloodGroup": "O+",
+                            "emailAddress": "ali@example.com"
+                          }
+                        }
+                        """),
+
+                ["Messaging_CreateThread"] = new(
+                    summary: "Create secure messaging thread",
+                    description: "Starts a new secure message thread with hospital staff.",
+                    requestExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "subject": "Question about lab report",
+                          "category": "Reports",
+                          "initialMessage": "Please review my latest CBC results."
+                        }
+                        """,
+                    responseExample: """
+                        {
+                          "success": true,
+                          "message": "Thread created successfully",
+                          "threadId": 42
+                        }
+                        """),
+
+                ["Messaging_GetInbox"] = new(
+                    summary: "List message inbox",
+                    description: "Returns all messaging threads for the patient, newest first.",
+                    responseExample: """
+                        {
+                          "success": true,
+                          "data": [
+                            {
+                              "threadId": 42,
+                              "mrNo": "010-002-152",
+                              "subject": "Question about lab report",
+                              "category": "Reports",
+                              "status": "OPEN",
+                              "lastMessagePreview": "Please review my latest CBC results."
+                            }
+                          ]
+                        }
+                        """,
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["mrNo"] = "Patient MR number from JWT.",
+                    }),
+
+                ["Messaging_GetMessages"] = new(
+                    summary: "Get chat history for a thread",
+                    description: "Paginated message history including attachment metadata.",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["threadId"] = "Thread ID from inbox.",
+                        ["mrNo"] = "Patient MR number.",
+                        ["pageNumber"] = "Page number (default 1).",
+                        ["pageSize"] = "Page size (default 50, max 100).",
+                    }),
+
+                ["Messaging_SendMessage"] = new(
+                    summary: "Send text message in thread",
+                    description: "Posts a patient message into an existing thread.",
+                    requestExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "body": "Thank you, I will visit OPD tomorrow."
+                        }
+                        """),
+
+                ["Messaging_UploadAttachment"] = new(
+                    summary: "Upload file attachment to thread",
+                    description: """
+                        Multipart form upload. Allowed: PDF, JPG, PNG, GIF, WEBP (max 10 MB).
+                        Form fields: `mrNo`, `file`, optional `body`.
+                        """),
+
+                ["Medications_GetCurrentMedications"] = new(
+                    summary: "List current medications",
+                    description: "Returns distinct active medications from HMIS prescriptions (last 6 months).",
+                    responseExample: """
+                        {
+                          "success": true,
+                          "count": 2,
+                          "data": [
+                            {
+                              "medicationId": 12345,
+                              "medicineName": "Metformin 500mg",
+                              "dosage": "1 tablet",
+                              "doseWhen": "After meals",
+                              "doctor": "Dr. Ahmed",
+                              "visitDate": "2026-08-01T00:00:00"
+                            }
+                          ]
+                        }
+                        """,
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["mrNo"] = "Patient MR number.",
+                    }),
+
+                ["Medications_GetMedicationDetail"] = new(
+                    summary: "Get medication detail",
+                    description: "Full prescription line detail by medication ID (PP_ID).",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["medicationId"] = "Medication ID from current medications list.",
+                        ["mrNo"] = "Patient MR number.",
+                    }),
+
+                ["Medications_RequestRefill"] = new(
+                    summary: "Request medication refill",
+                    description: "Submits a refill request to the hospital pharmacy workflow.",
+                    requestExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "medicationId": 12345,
+                          "quantity": 30,
+                          "notes": "Running low, please approve refill."
+                        }
+                        """,
+                    responseExample: """
+                        {
+                          "success": true,
+                          "message": "Refill request submitted",
+                          "data": {
+                            "refillId": 7,
+                            "status": "PENDING",
+                            "medicationName": "Metformin 500mg"
+                          }
+                        }
+                        """),
+
+                ["Medications_GetRefillStatus"] = new(
+                    summary: "Get refill request status",
+                    description: "Returns status for a single refill request (PENDING, APPROVED, REJECTED, etc.).",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["refillId"] = "Refill request ID.",
+                        ["mrNo"] = "Patient MR number.",
+                    }),
+
+                ["Medications_GetRefillHistory"] = new(
+                    summary: "List refill requests for patient",
+                    description: "Returns all refill requests for the patient, newest first.",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["mrNo"] = "Patient MR number.",
+                    }),
+
+                ["MedicationReminders_GetReminders"] = new(
+                    summary: "List medication reminders",
+                    description: "Returns all reminder schedules for the patient.",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["mrNo"] = "Patient MR number.",
+                    }),
+
+                ["MedicationReminders_CreateReminder"] = new(
+                    summary: "Create medication reminder",
+                    description: """
+                        Creates a daily reminder. `reminderTime` uses 24h format (e.g. `09:30`).
+                        `daysOfWeek`: 1=Mon … 7=Sun (default `1234567` = every day).
+                        Server push requires registered FCM device token.
+                        """,
+                    requestExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "medicationId": 12345,
+                          "medicationName": "Metformin 500mg",
+                          "reminderTime": "09:30",
+                          "daysOfWeek": "1234567",
+                          "isEnabled": true
+                        }
+                        """),
+
+                ["MedicationReminders_UpdateReminder"] = new(
+                    summary: "Update medication reminder",
+                    description: "Partial update — only supplied fields are changed."),
+
+                ["MedicationReminders_DeleteReminder"] = new(
+                    summary: "Delete medication reminder",
+                    description: "Permanently removes a medication reminder schedule.",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["reminderId"] = "Reminder ID to delete.",
+                        ["mrNo"] = "Patient MR number.",
+                    }),
             };
 
         public static IReadOnlyDictionary<string, string> TagDescriptions { get; } =
@@ -529,6 +803,9 @@ namespace HospitalMobileAPPApi.Swagger
                 ["Patient"] = "Patient profile, health records, appointments, and discharge history. Requires JWT except guest booking and password reset.",
                 ["PatientReport"] = "PDF report generation and billing history. Requires JWT.",
                 ["PushNotification"] = "FCM push notification register/unregister and hospital-triggered sends. Requires JWT.",
+                ["Messaging"] = "Secure patient-to-hospital messaging with file attachments. Requires JWT.",
+                ["Medications"] = "Current medications from HMIS prescriptions and refill requests. Requires JWT.",
+                ["MedicationReminders"] = "Medication reminder CRUD and server-side push triggers. Requires JWT.",
             };
     }
 }

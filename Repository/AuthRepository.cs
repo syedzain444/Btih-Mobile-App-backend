@@ -32,14 +32,36 @@
 
             await conn.OpenAsync();
 
-            await using var reader = await cmd.ExecuteReaderAsync();
+            await using (var reader = await cmd.ExecuteReaderAsync())
+            {
+                if (await reader.ReadAsync())
+                {
+                    return new LoginResponse
+                    {
+                        MrNo = reader["MR_NO"]?.ToString(),
+                        FirstName = reader["FIRST_NAME"]?.ToString()
+                    };
+                }
+            }
 
-            if (await reader.ReadAsync())
+            await using var mobileCmd = new OracleCommand(@"
+                SELECT MR_NO, FIRST_NAME
+                FROM MOBILE_PATIENT_REGISTRATION
+                WHERE CONTACT_NO = :CONTACT_NO
+                  AND PATIENT_PASSWORD = :PATIENT_PASSWORD
+                  AND IS_ACTIVE = 'Y'
+                  AND ROWNUM = 1", conn);
+
+            mobileCmd.Parameters.Add(new OracleParameter("CONTACT_NO", contactNo));
+            mobileCmd.Parameters.Add(new OracleParameter("PATIENT_PASSWORD", password));
+
+            await using var mobileReader = await mobileCmd.ExecuteReaderAsync();
+            if (await mobileReader.ReadAsync())
             {
                 return new LoginResponse
                 {
-                    MrNo = reader["MR_NO"]?.ToString(),
-                    FirstName = reader["FIRST_NAME"]?.ToString()
+                    MrNo = mobileReader["MR_NO"]?.ToString(),
+                    FirstName = mobileReader["FIRST_NAME"]?.ToString(),
                 };
             }
 

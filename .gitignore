@@ -39,6 +39,9 @@ ScaffoldingReadMe.txt
 # dotenv environment variables file
 .env
 
+# Local secrets override (copy from appsettings.Local.json.example)
+appsettings.Local.json
+
 # Others
 ~$*
 *~

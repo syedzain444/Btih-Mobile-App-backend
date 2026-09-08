@@ -1,4 +1,5 @@
 ﻿using HospitalMobileAPPApi.Configuration;
+using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -16,11 +17,13 @@ namespace HospitalMobileAPPApi.Controllers
     [Tags("Auth")]
     public class AuthController : ControllerBase    {
         private const string PasswordResetCachePrefix = "pwd_reset_verified:";
+        private const string RegistrationOtpCachePrefix = "reg_otp:";
 
         private readonly IAuthService _authService;
         private readonly IMemoryCache _cache;
         private readonly IJwtService _jwtService;
         private readonly IPatientService _patientService;
+        private readonly IRegistrationService _registrationService;
         private readonly ILogger<AuthController> _logger;
         private readonly AuthSettings _authSettings;
         private readonly SmsSettings _smsSettings;
@@ -30,6 +33,7 @@ namespace HospitalMobileAPPApi.Controllers
             IMemoryCache cache,
             IJwtService jwtService,
             IPatientService patientService,
+            IRegistrationService registrationService,
             ILogger<AuthController> logger,
             IOptions<AuthSettings> authSettings,
             IOptions<SmsSettings> smsSettings)
@@ -38,6 +42,7 @@ namespace HospitalMobileAPPApi.Controllers
             _cache = cache;
             _jwtService = jwtService;
             _patientService = patientService;
+            _registrationService = registrationService;
             _logger = logger;
             _authSettings = authSettings.Value;
             _smsSettings = smsSettings.Value;
@@ -51,34 +56,47 @@ namespace HospitalMobileAPPApi.Controllers
                 return BadRequest(new { success = false, message = "Contact number and password are required" });
             }
 
-            var loginResult = await _authService.LoginAsync(
-                request.ContactNo.Trim(),
-                request.Password);
-
-            if (loginResult == null || string.IsNullOrWhiteSpace(loginResult.MrNo))
+            try
             {
-                return Unauthorized(new
+                var loginResult = await _authService.LoginAsync(
+                    request.ContactNo.Trim(),
+                    request.Password);
+
+                if (loginResult == null || string.IsNullOrWhiteSpace(loginResult.MrNo))
                 {
-                    success = false,
-                    message = "Invalid contact number or password",
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Invalid contact number or password",
+                    });
+                }
+
+                var tokenResult = _jwtService.GenerateToken(
+                    loginResult.MrNo,
+                    request.ContactNo.Trim());
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Login successful",
+                    token = tokenResult.Token,
+                    tokenType = "Bearer",
+                    expiresAt = tokenResult.ExpiresAt,
+                    expiresInSeconds = tokenResult.ExpiresInSeconds,
+                    mrNo = loginResult.MrNo,
+                    firstName = loginResult.FirstName,
                 });
             }
-
-            var tokenResult = _jwtService.GenerateToken(
-                loginResult.MrNo,
-                request.ContactNo.Trim());
-
-            return Ok(new
+            catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
             {
-                success = true,
-                message = "Login successful",
-                token = tokenResult.Token,
-                tokenType = "Bearer",
-                expiresAt = tokenResult.ExpiresAt,
-                expiresInSeconds = tokenResult.ExpiresInSeconds,
-                mrNo = loginResult.MrNo,
-                firstName = loginResult.FirstName,
-            });
+                _logger.LogError(ex, "Database connection failed during login");
+                return StatusCode(statusCode, new
+                {
+                    success = false,
+                    message = dbMessage,
+                    hint = "This is an Oracle database connection error, not invalid patient credentials.",
+                });
+            }
         }
 
         [HttpPost("verifyPhoneNo")]
@@ -201,6 +219,112 @@ namespace HospitalMobileAPPApi.Controllers
                 success = true,
                 message = "OTP verified successfully",
                 mrNo,
+            });
+        }
+
+        [HttpPost("send-registration-otp")]
+        public async Task<IActionResult> SendRegistrationOtp(string phoneNumber)
+        {
+            if (string.IsNullOrWhiteSpace(phoneNumber))
+            {
+                return BadRequest(new { success = false, message = "Phone number is required" });
+            }
+
+            phoneNumber = phoneNumber.Trim();
+
+            try
+            {
+                var otp = GenerateOtp();
+                var expiry = TimeSpan.FromMinutes(_authSettings.OtpExpiryMinutes);
+                var cacheKey = $"{RegistrationOtpCachePrefix}{phoneNumber}";
+
+                _cache.Set(cacheKey, otp, new MemoryCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = expiry,
+                });
+
+                var message = $"Your BTIH registration OTP is {otp}. It will expire in {_authSettings.OtpExpiryMinutes} minutes.";
+                var smsSent = await SendSmsAsync(phoneNumber, message);
+
+                if (!smsSent)
+                {
+                    return StatusCode(500, new
+                    {
+                        success = false,
+                        message = "Failed to send OTP. SMS service is unavailable.",
+                    });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Registration OTP sent successfully",
+                    expiresInMinutes = _authSettings.OtpExpiryMinutes,
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send registration OTP to {PhoneNumber}", phoneNumber);
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Error sending registration OTP",
+                });
+            }
+        }
+
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+        {
+            if (request == null)
+            {
+                return BadRequest(new { success = false, message = "Request body is required" });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.PhoneNumber) || string.IsNullOrWhiteSpace(request.Otp))
+            {
+                return BadRequest(new { success = false, message = "Phone number and OTP are required" });
+            }
+
+            var phoneNumber = request.PhoneNumber.Trim();
+            var cacheKey = $"{RegistrationOtpCachePrefix}{phoneNumber}";
+
+            if (!_cache.TryGetValue(cacheKey, out string? storedOtp) || storedOtp != request.Otp.Trim())
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid or expired OTP. Call send-registration-otp first.",
+                });
+            }
+
+            _cache.Remove(cacheKey);
+
+            var result = await _registrationService.RegisterAsync(request);
+
+            if (!result.Success || string.IsNullOrWhiteSpace(result.MrNo))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = result.Message,
+                });
+            }
+
+            var tokenResult = _jwtService.GenerateToken(result.MrNo, phoneNumber);
+
+            return Ok(new
+            {
+                success = true,
+                message = result.Message,
+                token = tokenResult.Token,
+                tokenType = result.TokenType,
+                expiresAt = tokenResult.ExpiresAt,
+                expiresInSeconds = tokenResult.ExpiresInSeconds,
+                mrNo = result.MrNo,
+                firstName = result.FirstName,
+                profileSetupRequired = result.ProfileSetupRequired,
+                isExistingHmisPatient = result.IsExistingHmisPatient,
             });
         }
 

@@ -1,5 +1,7 @@
 using HospitalMobileAPPApi.Configuration;
 using HospitalMobileAPPApi.Data;
+using HospitalMobileAPPApi.Filters;
+using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Repository;
 using HospitalMobileAPPApi.Services;
 using HospitalMobileAPPApi.Swagger;
@@ -17,12 +19,15 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
     .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: true)
+    .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true)
     .AddEnvironmentVariables();
 
 builder.Services.Configure<AuthSettings>(builder.Configuration.GetSection(AuthSettings.SectionName));
 builder.Services.Configure<SmsSettings>(builder.Configuration.GetSection(SmsSettings.SectionName));
 builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection(SecuritySettings.SectionName));
 builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection(RateLimitSettings.SectionName));
+builder.Services.Configure<MessagingSettings>(builder.Configuration.GetSection(MessagingSettings.SectionName));
+builder.Services.Configure<ReminderSettings>(builder.Configuration.GetSection(ReminderSettings.SectionName));
 
 DataProtectionConfigurator.ConfigureDataProtection(builder);
 
@@ -56,6 +61,16 @@ builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
 builder.Services.AddScoped<IPushNotificationRepository, PushNotificationRepository>();
 builder.Services.AddSingleton<IFcmPushSender, FcmPushSender>();
 builder.Services.AddScoped<IJwtService, JwtService>();
+builder.Services.AddScoped<IRegistrationRepository, RegistrationRepository>();
+builder.Services.AddScoped<IRegistrationService, RegistrationService>();
+builder.Services.AddScoped<IMessagingRepository, MessagingRepository>();
+builder.Services.AddScoped<IMessagingService, MessagingService>();
+builder.Services.AddScoped<IMedicationRepository, MedicationRepository>();
+builder.Services.AddScoped<IMedicationService, MedicationService>();
+builder.Services.AddScoped<IReminderRepository, ReminderRepository>();
+builder.Services.AddScoped<IReminderService, ReminderService>();
+builder.Services.AddScoped<IMobilePortalSchemaService, MobilePortalSchemaService>();
+builder.Services.AddHostedService<MedicationReminderBackgroundService>();
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"];
@@ -96,7 +111,10 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<OracleExceptionFilter>();
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -136,6 +154,49 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+
+var hmisConnection = app.Configuration.GetConnectionString("HMISConnection");
+if (string.IsNullOrWhiteSpace(hmisConnection))
+{
+    app.Logger.LogWarning("HMISConnection is empty. Set ConnectionStrings:HMISConnection or environment variable ConnectionStrings__HMISConnection.");
+}
+else
+{
+    try
+    {
+        await using var testConn = new Oracle.ManagedDataAccess.Client.OracleConnection(hmisConnection);
+        await testConn.OpenAsync();
+        app.Logger.LogInformation("HMIS Oracle connection verified at startup.");
+
+        try
+        {
+            using var scope = app.Services.CreateScope();
+            var schemaService = scope.ServiceProvider.GetRequiredService<IMobilePortalSchemaService>();
+            var missing = await schemaService.GetMissingTablesAsync();
+            if (missing.Count > 0)
+            {
+                app.Logger.LogWarning(
+                    "Missing mobile portal tables: {Tables}. Run Docs/MOBILE_PORTAL_TABLES.sql (or Docs/MOBILE_MESSAGING_TABLES.sql for messaging only).",
+                    string.Join(", ", missing));
+            }
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogWarning(ex, "Could not verify mobile portal schema at startup.");
+        }
+    }
+    catch (Exception ex)
+    {
+        if (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var message, out _))
+        {
+            app.Logger.LogError("HMIS Oracle connection failed at startup: {Message}", message);
+        }
+        else
+        {
+            app.Logger.LogError(ex, "HMIS Oracle connection failed at startup.");
+        }
+    }
+}
 
 if (!app.Environment.IsDevelopment())
 {

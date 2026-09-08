@@ -16,11 +16,16 @@ namespace HospitalMobileAPPApi.Controllers
         private const string PasswordResetCachePrefix = "pwd_reset_verified:";
 
         private readonly IPatientService _patService;
+        private readonly IRegistrationService _registrationService;
         private readonly IMemoryCache _cache;
 
-        public PatientController(IPatientService patService, IMemoryCache cache)
+        public PatientController(
+            IPatientService patService,
+            IRegistrationService registrationService,
+            IMemoryCache cache)
         {
             _patService = patService;
+            _registrationService = registrationService;
             _cache = cache;
         }
 
@@ -170,6 +175,49 @@ namespace HospitalMobileAPPApi.Controllers
             {
                 message = "Appointment requested successfully",
                 rowsAffected,
+            });
+        }
+
+        [HttpPost("setup")]
+        public async Task<IActionResult> SetupProfile([FromBody] ProfileSetupRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.MrNo))
+            {
+                return BadRequest(new { success = false, message = "MR number is required" });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.CNIC)
+                || !request.DateOfBirth.HasValue
+                || string.IsNullOrWhiteSpace(request.Gender)
+                || string.IsNullOrWhiteSpace(request.BloodGroup))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "CNIC, date of birth, gender, and blood group are required for profile setup",
+                });
+            }
+
+            var updated = await _registrationService.CompleteProfileSetupAsync(request);
+
+            if (!updated)
+            {
+                return NotFound(new { success = false, message = "Profile setup failed. Patient not found." });
+            }
+
+            var profile = await _registrationService.GetPatientDetailsAsync(request.MrNo);
+            if (profile == null)
+            {
+                var hmisProfile = await _patService.GetPatientProfileAsync(request.MrNo, 1, 20);
+                profile = hmisProfile?.Profile;
+            }
+
+            return Ok(new
+            {
+                success = true,
+                message = "Profile setup completed",
+                profileSetupRequired = false,
+                profile,
             });
         }
 
