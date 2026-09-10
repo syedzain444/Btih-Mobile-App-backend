@@ -1,4 +1,4 @@
-﻿namespace HospitalMobileAPPApi.Models
+namespace HospitalMobileAPPApi.Models
 {
     public class PatientAppointment
     {
@@ -13,6 +13,8 @@
         public string AppointmentTime { get; set; }
         public string Status { get; set; }
         public string DoctorName { get; set; }
+        public int DoctorId { get; set; }
+        public int DepartmentId { get; set; }
         public string purpose { get; set; }
         public DateTime? CreatedAt { get; set; }
     }

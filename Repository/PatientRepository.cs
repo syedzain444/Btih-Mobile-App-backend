@@ -1,4 +1,4 @@
-﻿using Dapper;
+using Dapper;
 using HospitalMobileAPPApi.Models;
 using Oracle.ManagedDataAccess.Client;
 using System.Net;
@@ -651,6 +651,12 @@ namespace HospitalMobileAPPApi.Repository
                     AppointmentTime = reader["APPOINTMENTTIME"]?.ToString(),
                     Status = reader["STATUS"]?.ToString(),
                     DoctorName = reader["DOCTOR_NAME"]?.ToString(),
+                    DoctorId = reader["DOCTOR_ID"] != DBNull.Value
+                        ? Convert.ToInt32(reader["DOCTOR_ID"])
+                        : 0,
+                    DepartmentId = reader["DEPARTMENT_ID"] != DBNull.Value
+                        ? Convert.ToInt32(reader["DEPARTMENT_ID"])
+                        : 0,
                     purpose = reader["PURPOSE"]?.ToString(),
                     CreatedAt = reader["CREATED_AT"] != DBNull.Value
                         ? DateTime.Parse(reader["CREATED_AT"].ToString())
@@ -659,6 +665,74 @@ namespace HospitalMobileAPPApi.Repository
             }
 
             return doctors;
+        }
+
+        public async Task<int> CancelAppointmentAsync(string appointmentId, string mrNo, string reason)
+        {
+            if (string.IsNullOrWhiteSpace(appointmentId) || string.IsNullOrWhiteSpace(mrNo))
+            {
+                return 0;
+            }
+
+            var connStr = _configuration.GetConnectionString("HOS_WEB_MVC_LIVE");
+            var note = $"[CANCELLED BY PATIENT: {reason.Trim()}]";
+
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                UPDATE APPOINTMENT
+                SET STATUS = 'Cancelled',
+                    IS_ACTIVE = 'N',
+                    PURPOSE = CASE
+                        WHEN PURPOSE IS NULL OR TRIM(PURPOSE) = '' THEN :note
+                        ELSE PURPOSE || ' | ' || :note
+                    END
+                WHERE APPOINTMENT_ID = :appointment_id
+                  AND MRNUM = :mr_no
+                  AND NVL(IS_ACTIVE, 'Y') = 'Y'
+                  AND UPPER(NVL(STATUS, 'PENDING')) NOT IN ('CANCELLED', 'COMPLETED')", conn);
+
+            cmd.BindByName = true;
+            cmd.Parameters.Add("note", OracleDbType.Varchar2).Value = note;
+            cmd.Parameters.Add("appointment_id", OracleDbType.Varchar2).Value = appointmentId.Trim();
+            cmd.Parameters.Add("mr_no", OracleDbType.Varchar2).Value = mrNo.Trim();
+
+            await conn.OpenAsync();
+            return await cmd.ExecuteNonQueryAsync();
+        }
+
+        public async Task<int> RequestRescheduleAsync(
+            string appointmentId,
+            RescheduleAppointmentRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(appointmentId) || string.IsNullOrWhiteSpace(request.MrNo))
+            {
+                return 0;
+            }
+
+            var connStr = _configuration.GetConnectionString("HOS_WEB_MVC_LIVE");
+            var note =
+                $"[RESCHEDULE REQUEST: weekId={request.WeekId}, time={request.AppointmentTime}, reason={request.Reason.Trim()}]";
+
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                UPDATE APPOINTMENT
+                SET STATUS = 'Reschedule Pending',
+                    PURPOSE = CASE
+                        WHEN PURPOSE IS NULL OR TRIM(PURPOSE) = '' THEN :note
+                        ELSE PURPOSE || ' | ' || :note
+                    END
+                WHERE APPOINTMENT_ID = :appointment_id
+                  AND MRNUM = :mr_no
+                  AND NVL(IS_ACTIVE, 'Y') = 'Y'
+                  AND UPPER(NVL(STATUS, 'PENDING')) NOT IN ('CANCELLED', 'COMPLETED', 'RESCHEDULE PENDING')", conn);
+
+            cmd.BindByName = true;
+            cmd.Parameters.Add("note", OracleDbType.Varchar2).Value = note;
+            cmd.Parameters.Add("appointment_id", OracleDbType.Varchar2).Value = appointmentId.Trim();
+            cmd.Parameters.Add("mr_no", OracleDbType.Varchar2).Value = request.MrNo.Trim();
+
+            await conn.OpenAsync();
+            return await cmd.ExecuteNonQueryAsync();
         }
 
         public async Task<List<PatientDischargeHistory>> GetDischargeHistory(string MR_NO, int skip, int take)

@@ -1,4 +1,4 @@
-﻿using HospitalMobileAPPApi.Models;
+using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -291,6 +291,89 @@ namespace HospitalMobileAPPApi.Controllers
             }
 
             return Ok(appointment);
+        }
+
+        /// <summary>Cancel an appointment immediately. Reason is required and stored for admin review.</summary>
+        [HttpPut("appointments/{appointmentId}/cancel")]
+        public async Task<IActionResult> CancelAppointment(
+            string appointmentId,
+            [FromBody] CancelAppointmentRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.MrNo))
+            {
+                return BadRequest(new { message = "MR number is required" });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Reason))
+            {
+                return BadRequest(new { message = "Cancellation reason is required" });
+            }
+
+            if (request.Reason.Trim().Length < 5)
+            {
+                return BadRequest(new { message = "Please provide a meaningful cancellation reason (at least 5 characters)" });
+            }
+
+            var cancelled = await _patService.CancelAppointmentAsync(appointmentId, request);
+
+            if (!cancelled)
+            {
+                return NotFound(new
+                {
+                    message = "Appointment not found or cannot be cancelled. It may already be completed or cancelled.",
+                });
+            }
+
+            return Ok(new
+            {
+                message = "Appointment cancelled successfully",
+                appointmentId,
+                status = "Cancelled",
+            });
+        }
+
+        /// <summary>Request appointment reschedule — pending admin approval. Reason and new slot are required.</summary>
+        [HttpPut("appointments/{appointmentId}/reschedule")]
+        public async Task<IActionResult> RequestReschedule(
+            string appointmentId,
+            [FromBody] RescheduleAppointmentRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.MrNo))
+            {
+                return BadRequest(new { message = "MR number is required" });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Reason))
+            {
+                return BadRequest(new { message = "Reschedule reason is required" });
+            }
+
+            if (request.Reason.Trim().Length < 5)
+            {
+                return BadRequest(new { message = "Please provide a meaningful reschedule reason (at least 5 characters)" });
+            }
+
+            if (request.WeekId <= 0 || string.IsNullOrWhiteSpace(request.AppointmentTime))
+            {
+                return BadRequest(new { message = "New appointment slot (weekId and appointmentTime) is required" });
+            }
+
+            var submitted = await _patService.RequestRescheduleAsync(appointmentId, request);
+
+            if (!submitted)
+            {
+                return NotFound(new
+                {
+                    message = "Appointment not found or cannot be rescheduled. It may already be cancelled, completed, or pending reschedule.",
+                });
+            }
+
+            return Ok(new
+            {
+                message = "Reschedule request submitted. Awaiting admin approval.",
+                appointmentId,
+                status = "Reschedule Pending",
+            });
         }
 
         [HttpGet("dischargeHistory/{mrno}")]

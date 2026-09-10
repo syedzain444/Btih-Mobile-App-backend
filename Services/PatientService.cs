@@ -1,4 +1,4 @@
-﻿using HospitalMobileAPPApi.Models;
+using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Repository;
 
 namespace HospitalMobileAPPApi.Services
@@ -109,6 +109,38 @@ namespace HospitalMobileAPPApi.Services
         public Task<List<PatientAppointment>> GetAppointments(string MR_NO)
         {
             return _repo.GetAppointments(MR_NO);
+        }
+
+        public async Task<bool> CancelAppointmentAsync(
+            string appointmentId,
+            CancelAppointmentRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request?.Reason))
+            {
+                return false;
+            }
+
+            var rows = await _repo.CancelAppointmentAsync(
+                appointmentId,
+                request.MrNo,
+                request.Reason.Trim());
+
+            return rows > 0;
+        }
+
+        public async Task<bool> RequestRescheduleAsync(
+            string appointmentId,
+            RescheduleAppointmentRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request?.Reason)
+                || request.WeekId <= 0
+                || string.IsNullOrWhiteSpace(request.AppointmentTime))
+            {
+                return false;
+            }
+
+            var rows = await _repo.RequestRescheduleAsync(appointmentId, request);
+            return rows > 0;
         }
 
         public async Task<PagedResult<PatientDischargeHistory>> GetDischargeHistoryAsync(

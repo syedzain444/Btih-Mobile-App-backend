@@ -1,4 +1,4 @@
-﻿using HospitalMobileAPPApi.Models;
+using HospitalMobileAPPApi.Models;
 
 namespace HospitalMobileAPPApi.Services
 {
@@ -14,6 +14,8 @@ namespace HospitalMobileAPPApi.Services
         Task<bool> UpdatePatientPassword(string mrno, string patientPassword);
         Task<bool> UpdatePatientProfileAsync(UpdatePatientProfileRequest request);
         Task<List<PatientAppointment>> GetAppointments(string mrno);
+        Task<bool> CancelAppointmentAsync(string appointmentId, CancelAppointmentRequest request);
+        Task<bool> RequestRescheduleAsync(string appointmentId, RescheduleAppointmentRequest request);
         Task<PagedResult<PatientDischargeHistory>> GetDischargeHistoryAsync(string MR_NO, int pageNumber = 1, int pageSize = 10);
     }
 }
