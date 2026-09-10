@@ -125,6 +125,21 @@ namespace HospitalMobileAPPApi.Services
             return updated;
         }
 
+        public async Task<bool> HasPortalAccountAsync(string phoneNumber, string mrNo)
+        {
+            if (await _registrationRepository.IsMobilePhoneRegisteredAsync(phoneNumber))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(mrNo))
+            {
+                return await _registrationRepository.HasPortalPasswordAsync(mrNo);
+            }
+
+            return false;
+        }
+
         public async Task<PatientDetails?> GetPatientDetailsAsync(string mrNo)
         {
             if (mrNo.StartsWith("MOB-", StringComparison.OrdinalIgnoreCase))

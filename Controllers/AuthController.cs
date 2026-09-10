@@ -25,6 +25,7 @@ namespace HospitalMobileAPPApi.Controllers
         private readonly IPatientService _patientService;
         private readonly IRegistrationService _registrationService;
         private readonly ILogger<AuthController> _logger;
+        private readonly IWebHostEnvironment _environment;
         private readonly AuthSettings _authSettings;
         private readonly SmsSettings _smsSettings;
 
@@ -35,6 +36,7 @@ namespace HospitalMobileAPPApi.Controllers
             IPatientService patientService,
             IRegistrationService registrationService,
             ILogger<AuthController> logger,
+            IWebHostEnvironment environment,
             IOptions<AuthSettings> authSettings,
             IOptions<SmsSettings> smsSettings)
         {
@@ -44,6 +46,7 @@ namespace HospitalMobileAPPApi.Controllers
             _patientService = patientService;
             _registrationService = registrationService;
             _logger = logger;
+            _environment = environment;
             _authSettings = authSettings.Value;
             _smsSettings = smsSettings.Value;
         }
@@ -114,11 +117,19 @@ namespace HospitalMobileAPPApi.Controllers
                 return Unauthorized(new { message = "Invalid number" });
             }
 
+            var contact = result.CONTACT_NO ?? ContactNo?.Trim() ?? string.Empty;
+            var hasPortalAccount = await _registrationService.HasPortalAccountAsync(
+                contact,
+                result.MR_NO ?? string.Empty);
+
             return Ok(new
             {
                 message = "Verification successful",
                 mr_no = result.MR_NO,
+                mrNo = result.MR_NO,
                 contactno = result.CONTACT_NO,
+                contactNo = result.CONTACT_NO,
+                hasPortalAccount,
             });
         }
 
@@ -153,6 +164,22 @@ namespace HospitalMobileAPPApi.Controllers
 
                 if (!smsSent)
                 {
+                    if (_environment.IsDevelopment() || _smsSettings.ReturnDebugOtpOnFailure)
+                    {
+                        _logger.LogWarning(
+                            "SMS delivery failed for {PhoneNumber}. Returning debug OTP because fallback is enabled.",
+                            phoneNumber);
+
+                        return Ok(new
+                        {
+                            success = true,
+                            message = "OTP generated. SMS could not be delivered — use the code shown below.",
+                            expiresInMinutes = _authSettings.OtpExpiryMinutes,
+                            smsDelivered = false,
+                            debugOtp = otp,
+                        });
+                    }
+
                     return StatusCode(500, new
                     {
                         success = false,
@@ -165,6 +192,7 @@ namespace HospitalMobileAPPApi.Controllers
                     success = true,
                     message = "OTP sent successfully",
                     expiresInMinutes = _authSettings.OtpExpiryMinutes,
+                    smsDelivered = true,
                 });
             }
             catch (Exception ex)
@@ -248,6 +276,22 @@ namespace HospitalMobileAPPApi.Controllers
 
                 if (!smsSent)
                 {
+                    if (_environment.IsDevelopment() || _smsSettings.ReturnDebugOtpOnFailure)
+                    {
+                        _logger.LogWarning(
+                            "Registration SMS delivery failed for {PhoneNumber}. Returning debug OTP.",
+                            phoneNumber);
+
+                        return Ok(new
+                        {
+                            success = true,
+                            message = "Registration OTP generated. SMS could not be delivered — use the code shown below.",
+                            expiresInMinutes = _authSettings.OtpExpiryMinutes,
+                            smsDelivered = false,
+                            debugOtp = otp,
+                        });
+                    }
+
                     return StatusCode(500, new
                     {
                         success = false,
@@ -260,6 +304,7 @@ namespace HospitalMobileAPPApi.Controllers
                     success = true,
                     message = "Registration OTP sent successfully",
                     expiresInMinutes = _authSettings.OtpExpiryMinutes,
+                    smsDelivered = true,
                 });
             }
             catch (Exception ex)

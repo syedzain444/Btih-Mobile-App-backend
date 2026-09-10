@@ -5,6 +5,13 @@ namespace HospitalMobileAPPApi.Configuration
         public const string SectionName = "Sms";
         public string BaseUrl { get; set; } = "http://172.20.10.50:81/api/values/?_Send_to=";
         public int TimeoutSeconds { get; set; } = 30;
+
+        /// <summary>
+        /// When SMS delivery fails, still return HTTP 200 and include <c>debugOtp</c> in the
+        /// JSON response so mobile/dev clients can complete OTP flows without the SMS gateway.
+        /// Disable in production once SMS is confirmed working.
+        /// </summary>
+        public bool ReturnDebugOtpOnFailure { get; set; }
     }
 
     public class AuthSettings
