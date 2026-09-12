@@ -19,6 +19,14 @@ namespace HospitalMobileAPPApi.Configuration
         public const string SectionName = "Auth";
         public int OtpExpiryMinutes { get; set; } = 2;
         public int PasswordResetWindowMinutes { get; set; } = 5;
+        public int TrustedDeviceDays { get; set; } = 90;
+        public int LoginChallengeMinutes { get; set; } = 5;
+
+        /// <summary>
+        /// Development only — contacts that skip login OTP and are auto-trusted when SMS is unavailable.
+        /// Use normalized numbers like 03339993577 or 3339993577.
+        /// </summary>
+        public string[] DevAutoTrustContacts { get; set; } = Array.Empty<string>();
     }
 
     public class SecuritySettings

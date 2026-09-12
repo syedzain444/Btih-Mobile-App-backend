@@ -6,22 +6,30 @@ namespace HospitalMobileAPPApi.Swagger
             new Dictionary<string, ApiDocEntry>(StringComparer.Ordinal)
             {
                 ["Auth_Login"] = new(
-                    summary: "Patient login",
+                    summary: "Patient login (hybrid trusted device)",
                     description: """
-                        Authenticates a patient using registered contact number and password.
-                        Returns a JWT Bearer token used for all protected endpoints.
+                        Authenticates a patient using contact number and password.
 
-                        **Flow:** Call this first → copy `token` → click **Authorize** in Swagger → enter `Bearer {token}`.
+                        **Trusted device:** If `deviceInstallId` + `deviceTrustToken` match a stored trusted device, returns JWT immediately.
+
+                        **New device:** If credentials are valid but the device is not trusted, returns `requiresOtp: true` and sends a verification code. Complete login with `POST /api/Auth/verify-login-otp`.
+
+                        Omit `deviceInstallId` for legacy/staff direct login behaviour.
                         """,
                     requestExample: """
                         {
                           "contactNo": "03001234567",
-                          "password": "yourPassword"
+                          "password": "yourPassword",
+                          "deviceInstallId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                          "deviceTrustToken": "optional-if-already-trusted",
+                          "deviceLabel": "Samsung Galaxy S24",
+                          "platform": "android"
                         }
                         """,
                     responseExample: """
                         {
                           "success": true,
+                          "requiresOtp": false,
                           "message": "Login successful",
                           "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
                           "tokenType": "Bearer",
@@ -31,6 +39,39 @@ namespace HospitalMobileAPPApi.Swagger
                           "firstName": "Ali"
                         }
                         """),
+
+                ["Auth_VerifyLoginOtp"] = new(
+                    summary: "Verify login OTP and trust device",
+                    description: """
+                        Completes login for a new/unrecognized device after `POST /api/Auth/login` returned `requiresOtp: true`.
+                        Optionally registers the device as trusted and returns a new `deviceTrustToken` for the mobile app to store securely.
+                        """,
+                    requestExample: """
+                        {
+                          "loginChallengeId": "f3c2...",
+                          "otp": "123456",
+                          "deviceInstallId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                          "deviceLabel": "Samsung Galaxy S24",
+                          "platform": "android",
+                          "trustDevice": true
+                        }
+                        """),
+
+                ["TrustedDevice_GetTrustedDevices"] = new(
+                    summary: "List trusted login devices",
+                    description: "Returns active trusted devices for password-only login. Requires JWT.",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["mrNo"] = "Patient MR number.",
+                    }),
+
+                ["TrustedDevice_RevokeTrustedDevice"] = new(
+                    summary: "Revoke one trusted device",
+                    description: "Removes trust for a single device. Next login from that device requires OTP."),
+
+                ["TrustedDevice_RevokeAllTrustedDevices"] = new(
+                    summary: "Revoke all trusted devices",
+                    description: "Removes trust from every device for the patient."),
 
                 ["Auth_VerifyNumber"] = new(
                     summary: "Verify phone number or MR number",
@@ -377,9 +418,129 @@ namespace HospitalMobileAPPApi.Swagger
                         ["patientVisitId"] = "PATIENT_VISIT_ID from prescription list.",
                     }),
 
+                ["Billing_GetOverview"] = new(
+                    summary: "Billing overview",
+                    description: """
+                        Returns billing dashboard totals for the mobile app overview screen:
+                        total bills, paid/pending amounts, and per-department counts.
+
+                        Backed by Oracle `SP_BILL_PAY` (COND=40).
+                        """,
+                    responseExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "totalBillCount": 12,
+                          "totalAmount": 45000.00,
+                          "paidBillCount": 10,
+                          "paidAmount": 42000.00,
+                          "pendingBillCount": 2,
+                          "pendingAmount": 3000.00,
+                          "cancelledBillCount": 0,
+                          "departments": [
+                            {
+                              "departmentCode": "LABORATORY",
+                              "departmentName": "Laboratory",
+                              "billCount": 4,
+                              "totalAmount": 8000.00,
+                              "reportId": 26
+                            }
+                          ]
+                        }
+                        """,
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["mrNo"] = "Patient MR number.",
+                    }),
+
+                ["Billing_GetHistory"] = new(
+                    summary: "Payment history",
+                    description: """
+                        Returns filtered bill/payment history for the mobile payment history screen.
+                        Supports department, year, date range, search, and payment status filters.
+                        """,
+                    responseExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "totalCount": 2,
+                          "totalAmount": 5000.00,
+                          "items": [
+                            {
+                              "billId": "123456",
+                              "invoiceNo": "INV-2026-001",
+                              "department": "Laboratory",
+                              "departmentCode": "LABORATORY",
+                              "paymentDate": "2026-03-01T10:00:00",
+                              "amount": 2500.00,
+                              "paymentStatus": "paid",
+                              "reportId": 26
+                            }
+                          ]
+                        }
+                        """,
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["mrNo"] = "Patient MR number.",
+                        ["department"] = "Optional department code (EMERGENCY, OPD, LABORATORY, etc.).",
+                        ["year"] = "Optional payment/visit year filter.",
+                        ["dateFrom"] = "Optional start date (inclusive).",
+                        ["dateTo"] = "Optional end date (inclusive).",
+                        ["search"] = "Optional search on bill ID, invoice, department, or amount.",
+                        ["paymentStatus"] = "Optional filter: paid, pending, or cancelled.",
+                    }),
+
+                ["Billing_GetInvoice"] = new(
+                    summary: "Invoice details",
+                    description: "Returns a single invoice/bill record for the invoice detail screen.",
+                    responseExample: """
+                        {
+                          "billId": "123456",
+                          "mrNo": "010-002-152",
+                          "invoiceNo": "INV-2026-001",
+                          "department": "Laboratory",
+                          "departmentCode": "LABORATORY",
+                          "visitDate": "2026-02-28T09:30:00",
+                          "paymentDate": "2026-03-01T10:00:00",
+                          "paymentMethod": "CASH",
+                          "amount": 2500.00,
+                          "paymentStatus": "paid",
+                          "reportId": 26
+                        }
+                        """,
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["billId"] = "Bill ID from history/overview.",
+                        ["mrNo"] = "Patient MR number (required query parameter).",
+                    }),
+
+                ["Billing_GetPaymentSummary"] = new(
+                    summary: "Payment screen summary",
+                    description: """
+                        Returns pending balances and recent payments for the mobile payment screen.
+                        Online payment processing is not included — this is read-only HMIS billing data.
+                        """,
+                    responseExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "totalPaidAmount": 42000.00,
+                          "totalPendingAmount": 3000.00,
+                          "paidBillCount": 10,
+                          "pendingBillCount": 2,
+                          "pendingBills": [],
+                          "recentPayments": []
+                        }
+                        """,
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["mrNo"] = "Patient MR number.",
+                    }),
+
                 ["PatientReport_GetBillingHistory"] = new(
-                    summary: "Get billing history",
-                    description: "Returns bill/payment history for a patient using Oracle stored procedure `SP_BILL_PAY`.",
+                    summary: "Get billing history (legacy)",
+                    description: """
+                        **Deprecated** — prefer `GET /api/Billing/history/{mrNo}`.
+
+                        Returns a flat array of bills for backward compatibility with older app builds.
+                        """,
                     responseExample: """
                         [
                           {
@@ -801,7 +962,8 @@ namespace HospitalMobileAPPApi.Swagger
                 ["Auth"] = "Authentication, OTP, and password reset. Most endpoints are public.",
                 ["Doctor"] = "Doctor directory, schedules, and specializations. Public endpoints.",
                 ["Patient"] = "Patient profile, health records, appointments, and discharge history. Requires JWT except guest booking and password reset.",
-                ["PatientReport"] = "PDF report generation and billing history. Requires JWT.",
+                ["PatientReport"] = "PDF report generation. Requires JWT.",
+                ["Billing"] = "Billing overview, invoice details, payment history, and payment summary. Requires JWT.",
                 ["PushNotification"] = "FCM push notification register/unregister and hospital-triggered sends. Requires JWT.",
                 ["Messaging"] = "Secure patient-to-hospital messaging with file attachments. Requires JWT.",
                 ["Medications"] = "Current medications from HMIS prescriptions and refill requests. Requires JWT.",

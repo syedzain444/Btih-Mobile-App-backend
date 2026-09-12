@@ -8,5 +8,6 @@ namespace HospitalMobileAPPApi.Repository
         Task UnregisterDeviceTokenAsync(UnregisterDeviceTokenRequest request);
         Task<List<PatientDeviceToken>> GetActiveTokensAsync(string mrNo);
         Task DeactivateTokenAsync(string mrNo, string deviceToken);
+        Task UnregisterAllTokensAsync(string mrNo);
     }
 }

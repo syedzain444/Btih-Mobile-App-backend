@@ -6,6 +6,8 @@ namespace HospitalMobileAPPApi.Services
     {
         Task RegisterDeviceTokenAsync(RegisterDeviceTokenRequest request);
         Task UnregisterDeviceTokenAsync(UnregisterDeviceTokenRequest request);
+        Task<List<PatientDeviceToken>> GetRegisteredDevicesAsync(string mrNo);
+        Task UnregisterAllDeviceTokensAsync(string mrNo);
         Task<PushSendResult> SendToPatientAsync(
             string mrNo,
             string title,

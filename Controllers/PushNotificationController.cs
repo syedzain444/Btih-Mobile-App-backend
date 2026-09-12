@@ -1,3 +1,4 @@
+using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -27,6 +28,11 @@ namespace HospitalMobileAPPApi.Controllers
                 return BadRequest(new { message = "MR No and device token are required" });
             }
 
+            if (!PatientAuthorizationHelper.IsAuthorizedForMrNo(User, request.MrNo))
+            {
+                return Forbid();
+            }
+
             await _pushNotificationService.RegisterDeviceTokenAsync(request);
 
             return Ok(new { message = "Device token registered successfully" });
@@ -40,9 +46,59 @@ namespace HospitalMobileAPPApi.Controllers
                 return BadRequest(new { message = "MR No and device token are required" });
             }
 
+            if (!PatientAuthorizationHelper.IsAuthorizedForMrNo(User, request.MrNo))
+            {
+                return Forbid();
+            }
+
             await _pushNotificationService.UnregisterDeviceTokenAsync(request);
 
             return Ok(new { message = "Device token unregistered successfully" });
+        }
+
+        [HttpGet("devices")]
+        public async Task<IActionResult> GetRegisteredDevices([FromQuery] string mrNo)
+        {
+            if (string.IsNullOrWhiteSpace(mrNo))
+            {
+                return BadRequest(new { message = "MR No is required" });
+            }
+
+            if (!PatientAuthorizationHelper.IsAuthorizedForMrNo(User, mrNo))
+            {
+                return Forbid();
+            }
+
+            var devices = await _pushNotificationService.GetRegisteredDevicesAsync(mrNo);
+
+            return Ok(new
+            {
+                data = devices.Select(device => new
+                {
+                    deviceToken = device.DeviceToken,
+                    platform = device.Platform,
+                    updatedAt = device.UpdatedAt,
+                }),
+            });
+        }
+
+        [HttpPost("unregister-all")]
+        public async Task<IActionResult> UnregisterAllDeviceTokens(
+            [FromBody] UnregisterAllDeviceTokensRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.MrNo))
+            {
+                return BadRequest(new { message = "MR No is required" });
+            }
+
+            if (!PatientAuthorizationHelper.IsAuthorizedForMrNo(User, request.MrNo))
+            {
+                return Forbid();
+            }
+
+            await _pushNotificationService.UnregisterAllDeviceTokensAsync(request.MrNo);
+
+            return Ok(new { message = "All device tokens unregistered successfully" });
         }
 
         [HttpPost("appointment-reminder")]

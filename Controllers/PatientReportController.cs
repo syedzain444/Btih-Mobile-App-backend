@@ -1,5 +1,6 @@
-﻿using HospitalMobileAPPApi.Configuration;
+using HospitalMobileAPPApi.Configuration;
 using HospitalMobileAPPApi.Models;
+using HospitalMobileAPPApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -21,15 +22,18 @@ namespace HospitalMobileAPPApi.Controllers
         private readonly IConfiguration _configuration;
         private readonly IWebHostEnvironment _env;
         private readonly SecuritySettings _securitySettings;
+        private readonly IBillingService _billingService;
 
         public PatientReportController(
             IConfiguration configuration,
             IWebHostEnvironment env,
-            IOptions<SecuritySettings> securitySettings)
+            IOptions<SecuritySettings> securitySettings,
+            IBillingService billingService)
         {
             _configuration = configuration;
             _env = env;
             _securitySettings = securitySettings.Value;
+            _billingService = billingService;
         }
 
         [HttpGet("GenerateReport")]
@@ -245,6 +249,7 @@ namespace HospitalMobileAPPApi.Controllers
         }
 
         [HttpGet("history/{mrNo}")]
+        [Obsolete("Use GET /api/Billing/history/{mrNo}. This endpoint remains for backward compatibility.")]
         public async Task<IActionResult> GetBillingHistory(string mrNo)
         {
             if (string.IsNullOrWhiteSpace(mrNo))
@@ -252,80 +257,22 @@ namespace HospitalMobileAPPApi.Controllers
                 return BadRequest(new { message = "MR number is required" });
             }
 
-            var result = new List<BillingHistoryModel>();
-
             try
             {
-                using var connection = new OracleConnection(
-                    _configuration.GetConnectionString("HMISConnection"));
-
-                using var cmd = new OracleCommand("SP_BILL_PAY", connection);
-                cmd.CommandType = CommandType.StoredProcedure;
-                cmd.BindByName = true;
-
-                // =========================
-                // Input Parameters
-                // =========================
-
-                cmd.Parameters.Add("COND", OracleDbType.Int32).Value = 40;
-                cmd.Parameters.Add("VAR_PAY_ID", OracleDbType.Int32).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_VISIT_ID", OracleDbType.Int32).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_PAID_AMOUNT", OracleDbType.Decimal).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_REFUND_AMOUNT", OracleDbType.Decimal).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_BALANCE_AMOUNT", OracleDbType.Decimal).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_TOTAL_AMOUNT", OracleDbType.Decimal).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_ADVANCE_AMOUNT", OracleDbType.Decimal).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_PAYMENT_METHOD", OracleDbType.Int32).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_PAYMETHOD_CODE", OracleDbType.Varchar2, 50).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_DT_PAYMENT", OracleDbType.Date).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_RECEIVED_BY", OracleDbType.Int32).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_INVOICE_NO", OracleDbType.Varchar2, 50).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_IS_CANCEL", OracleDbType.Varchar2, 10).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_DT_CANCEL", OracleDbType.Date).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_CANCEL_BY", OracleDbType.Int32).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_CANCEL_REASON", OracleDbType.Varchar2, 200).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_ARREARS_AMOUNT", OracleDbType.Decimal).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_INSURANCE_PANEL_ID", OracleDbType.Int32).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_IS_REFUND", OracleDbType.Varchar2, 10).Value = DBNull.Value;
-
-                cmd.Parameters.Add("VAR_MR_NO", OracleDbType.Varchar2, 50).Value = mrNo;
-
-                cmd.Parameters.Add("VAR_REMARKS", OracleDbType.Varchar2, 200).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_DISCOUNT_AMOUNT", OracleDbType.Decimal).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_AFTER_DISCOUNT_AMOUNT", OracleDbType.Decimal).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_PNL_AVAILABLE", OracleDbType.Decimal).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_PNL_AMOUNT", OracleDbType.Decimal).Value = DBNull.Value;
-                cmd.Parameters.Add("VAR_PNL_BALANCE", OracleDbType.Decimal).Value = DBNull.Value;
-
-                // =========================
-                // Output Cursor
-                // =========================
-
-                cmd.Parameters.Add("PI_CURSOR", OracleDbType.RefCursor)
-                              .Direction = ParameterDirection.Output;
-
-                await connection.OpenAsync();
-
-                using var reader = await cmd.ExecuteReaderAsync();
-
-                while (await reader.ReadAsync())
+                var history = await _billingService.GetHistoryAsync(mrNo);
+                var result = history.Items.Select(item => new BillingHistoryModel
                 {
-                    result.Add(new BillingHistoryModel
-                    {
-                        BillId = reader["BILLID"]?.ToString(),
-                        //MrNo = reader["MR_NO"]?.ToString(),
-                        InvoiceNo = reader["INVOICENO"]?.ToString(),
-                        Department = reader["BILL_DPT_NAME"]?.ToString(),
-
-                        PaymentDate = reader["DT_PAYMENT"] == DBNull.Value
-                                        ? null
-                                        : Convert.ToDateTime(reader["DT_PAYMENT"]),
-
-                        Amount = reader["TOTAL_AMOUNT"] == DBNull.Value
-                                        ? 0
-                                        : Convert.ToDecimal(reader["TOTAL_AMOUNT"])
-                    });
-                }
+                    BillId = item.BillId,
+                    MrNo = item.MrNo,
+                    InvoiceNo = item.InvoiceNo,
+                    Department = item.DepartmentCode ?? item.Department,
+                    VisitDate = item.VisitDate,
+                    PaymentDate = item.PaymentDate,
+                    PaymentMethod = item.PaymentMethod,
+                    Amount = item.Amount,
+                    IsCancel = item.IsCancel,
+                    CancelReason = item.CancelReason,
+                }).ToList();
 
                 return Ok(result);
             }

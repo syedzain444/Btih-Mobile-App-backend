@@ -18,12 +18,14 @@ namespace HospitalMobileAPPApi.Controllers
     public class AuthController : ControllerBase    {
         private const string PasswordResetCachePrefix = "pwd_reset_verified:";
         private const string RegistrationOtpCachePrefix = "reg_otp:";
+        private const string LoginChallengeCachePrefix = "login_challenge:";
 
         private readonly IAuthService _authService;
         private readonly IMemoryCache _cache;
         private readonly IJwtService _jwtService;
         private readonly IPatientService _patientService;
         private readonly IRegistrationService _registrationService;
+        private readonly ITrustedDeviceService _trustedDeviceService;
         private readonly ILogger<AuthController> _logger;
         private readonly IWebHostEnvironment _environment;
         private readonly AuthSettings _authSettings;
@@ -35,6 +37,7 @@ namespace HospitalMobileAPPApi.Controllers
             IJwtService jwtService,
             IPatientService patientService,
             IRegistrationService registrationService,
+            ITrustedDeviceService trustedDeviceService,
             ILogger<AuthController> logger,
             IWebHostEnvironment environment,
             IOptions<AuthSettings> authSettings,
@@ -45,6 +48,7 @@ namespace HospitalMobileAPPApi.Controllers
             _jwtService = jwtService;
             _patientService = patientService;
             _registrationService = registrationService;
+            _trustedDeviceService = trustedDeviceService;
             _logger = logger;
             _environment = environment;
             _authSettings = authSettings.Value;
@@ -74,21 +78,77 @@ namespace HospitalMobileAPPApi.Controllers
                     });
                 }
 
-                var tokenResult = _jwtService.GenerateToken(
-                    loginResult.MrNo,
-                    request.ContactNo.Trim());
+                var contactNo = request.ContactNo.Trim();
+                var deviceInstallId = request.DeviceInstallId?.Trim() ?? string.Empty;
 
-                return Ok(new
+                if (string.IsNullOrWhiteSpace(deviceInstallId))
                 {
-                    success = true,
-                    message = "Login successful",
-                    token = tokenResult.Token,
-                    tokenType = "Bearer",
-                    expiresAt = tokenResult.ExpiresAt,
-                    expiresInSeconds = tokenResult.ExpiresInSeconds,
-                    mrNo = loginResult.MrNo,
-                    firstName = loginResult.FirstName,
-                });
+                    return Ok(BuildLoginSuccessResponse(loginResult.MrNo, contactNo, loginResult.FirstName));
+                }
+
+                if (ShouldDevAutoTrust(contactNo))
+                {
+                    var devLogin = await TryDevAutoTrustLoginAsync(
+                        loginResult.MrNo,
+                        contactNo,
+                        loginResult.FirstName,
+                        deviceInstallId,
+                        request.DeviceLabel,
+                        request.Platform);
+
+                    if (devLogin != null)
+                    {
+                        return Ok(devLogin);
+                    }
+
+                    _logger.LogWarning(
+                        "Development bypass login for {ContactNo} (trusted-device store unavailable)",
+                        contactNo);
+                    return Ok(BuildLoginSuccessResponse(
+                        loginResult.MrNo,
+                        contactNo,
+                        loginResult.FirstName));
+                }
+
+                var isTrusted = false;
+                try
+                {
+                    isTrusted = await _trustedDeviceService.IsTrustedDeviceAsync(
+                        loginResult.MrNo,
+                        deviceInstallId,
+                        request.DeviceTrustToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Trusted device check failed for MR {MrNo}; requiring login OTP",
+                        loginResult.MrNo);
+                }
+
+                if (isTrusted)
+                {
+                    return Ok(BuildLoginSuccessResponse(loginResult.MrNo, contactNo, loginResult.FirstName));
+                }
+
+                var challenge = await BeginLoginOtpChallengeAsync(
+                    loginResult.MrNo,
+                    contactNo,
+                    loginResult.FirstName,
+                    deviceInstallId,
+                    request.DeviceLabel,
+                    request.Platform);
+
+                if (challenge == null)
+                {
+                    return StatusCode(500, new
+                    {
+                        success = false,
+                        message = "Could not send login verification code. Please try again.",
+                    });
+                }
+
+                return Ok(challenge);
             }
             catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
             {
@@ -100,6 +160,75 @@ namespace HospitalMobileAPPApi.Controllers
                     hint = "This is an Oracle database connection error, not invalid patient credentials.",
                 });
             }
+        }
+
+        [HttpPost("verify-login-otp")]
+        public async Task<IActionResult> VerifyLoginOtp([FromBody] VerifyLoginOtpRequest request)
+        {
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.LoginChallengeId) ||
+                string.IsNullOrWhiteSpace(request.Otp) ||
+                string.IsNullOrWhiteSpace(request.DeviceInstallId))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Login challenge id, OTP, and device id are required",
+                });
+            }
+
+            var cacheKey = $"{LoginChallengeCachePrefix}{request.LoginChallengeId.Trim()}";
+            if (!_cache.TryGetValue(cacheKey, out LoginChallengeCacheEntry? challenge) || challenge == null)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid or expired login verification session",
+                });
+            }
+
+            if (!string.Equals(challenge.Otp, request.Otp.Trim(), StringComparison.Ordinal))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Invalid or expired OTP",
+                });
+            }
+
+            _cache.Remove(cacheKey);
+
+            string? deviceTrustToken = null;
+            if (request.TrustDevice)
+            {
+                try
+                {
+                    deviceTrustToken = await _trustedDeviceService.RegisterTrustedDeviceAsync(
+                        challenge.MrNo,
+                        request.DeviceInstallId.Trim(),
+                        request.DeviceLabel ?? challenge.DeviceLabel,
+                        request.Platform ?? challenge.Platform);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to register trusted device for MR {MrNo}", challenge.MrNo);
+                }
+            }
+
+            var tokenResult = _jwtService.GenerateToken(challenge.MrNo, challenge.ContactNo);
+            return Ok(new
+            {
+                success = true,
+                message = "Login successful",
+                requiresOtp = false,
+                token = tokenResult.Token,
+                tokenType = "Bearer",
+                expiresAt = tokenResult.ExpiresAt,
+                expiresInSeconds = tokenResult.ExpiresInSeconds,
+                mrNo = challenge.MrNo,
+                firstName = challenge.FirstName,
+                deviceTrustToken,
+            });
         }
 
         [HttpPost("verifyPhoneNo")]
@@ -403,7 +532,188 @@ namespace HospitalMobileAPPApi.Controllers
 
             _cache.Remove(cacheKey);
 
+            try
+            {
+                await _trustedDeviceService.RevokeAllTrustedDevicesAsync(request.MrNo.Trim());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to revoke trusted devices after password reset for MR {MrNo}", request.MrNo);
+            }
+
             return Ok(new { message = "Password updated successfully" });
+        }
+
+        private object BuildLoginSuccessResponse(
+            string mrNo,
+            string contactNo,
+            string? firstName,
+            string? deviceTrustToken = null)
+        {
+            var tokenResult = _jwtService.GenerateToken(mrNo, contactNo);
+            return new
+            {
+                success = true,
+                message = "Login successful",
+                requiresOtp = false,
+                token = tokenResult.Token,
+                tokenType = "Bearer",
+                expiresAt = tokenResult.ExpiresAt,
+                expiresInSeconds = tokenResult.ExpiresInSeconds,
+                mrNo,
+                firstName,
+                deviceTrustToken,
+            };
+        }
+
+        private bool ShouldDevAutoTrust(string contactNo)
+        {
+            if (_authSettings.DevAutoTrustContacts.Length == 0)
+            {
+                return false;
+            }
+
+            var bypassEnabled = _environment.IsDevelopment() || _smsSettings.ReturnDebugOtpOnFailure;
+            if (!bypassEnabled)
+            {
+                return false;
+            }
+
+            var normalizedInput = NormalizeContactKey(contactNo);
+            return _authSettings.DevAutoTrustContacts.Any(entry =>
+                NormalizeContactKey(entry) == normalizedInput);
+        }
+
+        private async Task<object?> TryDevAutoTrustLoginAsync(
+            string mrNo,
+            string contactNo,
+            string? firstName,
+            string deviceInstallId,
+            string? deviceLabel,
+            string? platform)
+        {
+            try
+            {
+                var deviceTrustToken = await _trustedDeviceService.RegisterTrustedDeviceAsync(
+                    mrNo,
+                    deviceInstallId,
+                    deviceLabel,
+                    platform);
+
+                _logger.LogWarning(
+                    "Development auto-trust applied for contact {ContactNo} on device {DeviceInstallId}",
+                    contactNo,
+                    deviceInstallId);
+
+                return BuildLoginSuccessResponse(
+                    mrNo,
+                    contactNo,
+                    firstName,
+                    deviceTrustToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Development auto-trust failed for MR {MrNo}; falling back to login OTP",
+                    mrNo);
+                return null;
+            }
+        }
+
+        private static string NormalizeContactKey(string contactNo)
+        {
+            var digits = new string(contactNo.Where(char.IsDigit).ToArray());
+            if (digits.StartsWith("92", StringComparison.Ordinal) && digits.Length >= 12)
+            {
+                digits = digits[2..];
+            }
+
+            if (digits.StartsWith('0') && digits.Length > 1)
+            {
+                digits = digits[1..];
+            }
+
+            return digits;
+        }
+
+        private async Task<object?> BeginLoginOtpChallengeAsync(
+            string mrNo,
+            string contactNo,
+            string? firstName,
+            string deviceInstallId,
+            string? deviceLabel,
+            string? platform)
+        {
+            var otp = GenerateOtp();
+            var challengeId = Guid.NewGuid().ToString("N");
+            var cacheKey = $"{LoginChallengeCachePrefix}{challengeId}";
+            var challenge = new LoginChallengeCacheEntry
+            {
+                MrNo = mrNo,
+                ContactNo = contactNo,
+                FirstName = firstName ?? string.Empty,
+                DeviceInstallId = deviceInstallId,
+                DeviceLabel = deviceLabel,
+                Platform = platform,
+                Otp = otp,
+            };
+
+            _cache.Set(cacheKey, challenge, new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(_authSettings.LoginChallengeMinutes),
+            });
+
+            var message =
+                $"Your BTIH login verification code is {otp}. It expires in {_authSettings.OtpExpiryMinutes} minutes.";
+            var smsTimeoutSeconds = _smsSettings.ReturnDebugOtpOnFailure
+                ? Math.Min(_smsSettings.TimeoutSeconds, 8)
+                : _smsSettings.TimeoutSeconds;
+            var smsSent = await SendSmsAsync(contactNo, message, smsTimeoutSeconds);
+
+            if (!smsSent)
+            {
+                if (_environment.IsDevelopment() || _smsSettings.ReturnDebugOtpOnFailure)
+                {
+                    return new
+                    {
+                        success = true,
+                        requiresOtp = true,
+                        loginChallengeId = challengeId,
+                        message = "Verification code generated. SMS could not be delivered — use the code shown below.",
+                        expiresInMinutes = _authSettings.OtpExpiryMinutes,
+                        smsDelivered = false,
+                        debugOtp = otp,
+                        mrNo,
+                        maskedContactNo = MaskContactNo(contactNo),
+                    };
+                }
+
+                _cache.Remove(cacheKey);
+                return null;
+            }
+
+            return new
+            {
+                success = true,
+                requiresOtp = true,
+                loginChallengeId = challengeId,
+                message = "Verification code sent to your registered mobile number.",
+                expiresInMinutes = _authSettings.OtpExpiryMinutes,
+                smsDelivered = true,
+                mrNo,
+                maskedContactNo = MaskContactNo(contactNo),
+            };
+        }
+
+        private static string MaskContactNo(string contactNo)
+        {
+            if (contactNo.Length <= 4)
+            {
+                return contactNo;
+            }
+
+            return $"{new string('*', contactNo.Length - 4)}{contactNo[^4..]}";
         }
 
         private static string GenerateOtp()
@@ -411,7 +721,12 @@ namespace HospitalMobileAPPApi.Controllers
             return Random.Shared.Next(100000, 999999).ToString();
         }
 
-        private async Task<bool> SendSmsAsync(string number, string message)
+        private Task<bool> SendSmsAsync(string number, string message)
+        {
+            return SendSmsAsync(number, message, _smsSettings.TimeoutSeconds);
+        }
+
+        private async Task<bool> SendSmsAsync(string number, string message, int timeoutSeconds)
         {
             try
             {
@@ -420,7 +735,7 @@ namespace HospitalMobileAPPApi.Controllers
                 var request = (HttpWebRequest)WebRequest.Create(apiUrl);
                 request.Method = "GET";
                 request.ContentType = "application/json";
-                request.Timeout = _smsSettings.TimeoutSeconds * 1000;
+                request.Timeout = Math.Max(1, timeoutSeconds) * 1000;
 
                 using var response = await request.GetResponseAsync() as HttpWebResponse;
                 if (response == null || response.StatusCode != HttpStatusCode.OK)

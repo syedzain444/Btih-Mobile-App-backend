@@ -15,6 +15,8 @@ namespace HospitalMobileAPPApi.Repository
         Task<int> UpdatePatientPassword(string mrno, string patientPassword);
         Task<bool> UpdatePatientProfileAsync(UpdatePatientProfileRequest request);
         Task<List<PatientAppointment>> GetAppointments(string MR_NO);
+        Task<List<PatientAppointment>> GetAppointmentsByPhoneAsync(string phoneNumber);
+        Task<bool> CancelGuestAppointmentAsync(string appointmentId, string phoneNumber, string reason);
         Task<int> CancelAppointmentAsync(string appointmentId, string mrNo, string reason);
         Task<int> RequestRescheduleAsync(string appointmentId, RescheduleAppointmentRequest request);
         Task<List<PatientDischargeHistory>> GetDischargeHistory(string MR_NO, int skip, int take);

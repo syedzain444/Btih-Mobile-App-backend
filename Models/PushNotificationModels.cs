@@ -61,6 +61,17 @@ namespace HospitalMobileAPPApi.Models
         public string MrNo { get; set; } = string.Empty;
         public string DeviceToken { get; set; } = string.Empty;
         public string Platform { get; set; } = string.Empty;
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    public class PatientDeviceListRequest
+    {
+        public string MrNo { get; set; } = string.Empty;
+    }
+
+    public class UnregisterAllDeviceTokensRequest
+    {
+        public string MrNo { get; set; } = string.Empty;
     }
 
     public class PushSendResult
@@ -83,5 +94,6 @@ namespace HospitalMobileAPPApi.Models
         public const string ProfileUpdated = "profile_updated";
         public const string AppointmentReminder = "appointment_reminder";
         public const string ReportReady = "report_ready";
+        public const string MedicationReminder = "medication_reminder";
     }
 }

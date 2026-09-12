@@ -18,6 +18,9 @@ namespace HospitalMobileAPPApi.Services
             "PATIENT_MED_REFILL_REQUEST",
             "PATIENT_MED_REMINDER",
             "PATIENT_DEVICE_TOKEN",
+            "PATIENT_NOTIFICATION",
+            "PATIENT_TRUSTED_DEVICE",
+            "GUEST_PATIENT",
         };
 
         private readonly IConfiguration _configuration;

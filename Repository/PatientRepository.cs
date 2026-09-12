@@ -667,6 +667,108 @@ namespace HospitalMobileAPPApi.Repository
             return doctors;
         }
 
+        public async Task<List<PatientAppointment>> GetAppointmentsByPhoneAsync(string phoneNumber)
+        {
+            var normalized = GuestRepository.NormalizeMobile(phoneNumber);
+            var altWithoutZero = normalized.StartsWith('0') && normalized.Length > 1
+                ? normalized[1..]
+                : normalized;
+
+            var appointments = new List<PatientAppointment>();
+            var connStr = _configuration.GetConnectionString("HOS_WEB_MVC_LIVE");
+
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT a.*, d.DOCTOR_NAME
+                FROM APPOINTMENT a
+                INNER JOIN DOCTOR d ON a.DOCTOR_ID = d.DOCTOR_ID
+                WHERE REPLACE(REPLACE(a.PHONE, ' ', ''), '-', '') IN (:phone_a, :phone_b)
+                ORDER BY a.CREATED_AT DESC", conn);
+
+            cmd.BindByName = true;
+            cmd.Parameters.Add("phone_a", OracleDbType.Varchar2).Value = normalized;
+            cmd.Parameters.Add("phone_b", OracleDbType.Varchar2).Value = altWithoutZero;
+
+            await conn.OpenAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                appointments.Add(MapPatientAppointment(reader));
+            }
+
+            return appointments;
+        }
+
+        public async Task<bool> CancelGuestAppointmentAsync(
+            string appointmentId,
+            string phoneNumber,
+            string reason)
+        {
+            if (string.IsNullOrWhiteSpace(appointmentId) ||
+                string.IsNullOrWhiteSpace(phoneNumber) ||
+                string.IsNullOrWhiteSpace(reason))
+            {
+                return false;
+            }
+
+            var normalized = GuestRepository.NormalizeMobile(phoneNumber);
+            var altWithoutZero = normalized.StartsWith('0') && normalized.Length > 1
+                ? normalized[1..]
+                : normalized;
+            var note = $"[CANCELLED BY GUEST: {reason.Trim()}]";
+            var connStr = _configuration.GetConnectionString("HOS_WEB_MVC_LIVE");
+
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                UPDATE APPOINTMENT
+                SET STATUS = 'Cancelled',
+                    IS_ACTIVE = 'N',
+                    PURPOSE = CASE
+                        WHEN PURPOSE IS NULL OR TRIM(PURPOSE) = '' THEN :note
+                        ELSE PURPOSE || ' | ' || :note
+                    END
+                WHERE APPOINTMENT_ID = :appointment_id
+                  AND REPLACE(REPLACE(PHONE, ' ', ''), '-', '') IN (:phone_a, :phone_b)
+                  AND NVL(IS_ACTIVE, 'Y') = 'Y'
+                  AND UPPER(NVL(STATUS, 'PENDING')) NOT IN ('CANCELLED', 'COMPLETED')", conn);
+
+            cmd.BindByName = true;
+            cmd.Parameters.Add("note", OracleDbType.Varchar2).Value = note;
+            cmd.Parameters.Add("appointment_id", OracleDbType.Varchar2).Value = appointmentId.Trim();
+            cmd.Parameters.Add("phone_a", OracleDbType.Varchar2).Value = normalized;
+            cmd.Parameters.Add("phone_b", OracleDbType.Varchar2).Value = altWithoutZero;
+
+            await conn.OpenAsync();
+            var rows = await cmd.ExecuteNonQueryAsync();
+            return rows > 0;
+        }
+
+        private static PatientAppointment MapPatientAppointment(OracleDataReader reader)
+        {
+            return new PatientAppointment
+            {
+                AppointmentId = reader["APPOINTMENT_ID"]?.ToString(),
+                Name = reader["NAME"]?.ToString(),
+                PhoneNo = reader["PHONE"]?.ToString(),
+                MRNo = reader["MRNUM"]?.ToString(),
+                Email = reader["EMAIL"]?.ToString(),
+                weekId = Convert.ToInt32(reader["WEEK_ID"]),
+                AppointmentTime = reader["APPOINTMENTTIME"]?.ToString(),
+                Status = reader["STATUS"]?.ToString(),
+                DoctorName = reader["DOCTOR_NAME"]?.ToString(),
+                DoctorId = reader["DOCTOR_ID"] != DBNull.Value
+                    ? Convert.ToInt32(reader["DOCTOR_ID"])
+                    : 0,
+                DepartmentId = reader["DEPARTMENT_ID"] != DBNull.Value
+                    ? Convert.ToInt32(reader["DEPARTMENT_ID"])
+                    : 0,
+                purpose = reader["PURPOSE"]?.ToString(),
+                CreatedAt = reader["CREATED_AT"] != DBNull.Value
+                    ? DateTime.Parse(reader["CREATED_AT"].ToString()!)
+                    : null,
+            };
+        }
+
         public async Task<int> CancelAppointmentAsync(string appointmentId, string mrNo, string reason)
         {
             if (string.IsNullOrWhiteSpace(appointmentId) || string.IsNullOrWhiteSpace(mrNo))

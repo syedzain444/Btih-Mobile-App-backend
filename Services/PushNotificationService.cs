@@ -6,15 +6,18 @@ namespace HospitalMobileAPPApi.Services
     public class PushNotificationService : IPushNotificationService
     {
         private readonly IPushNotificationRepository _repository;
+        private readonly INotificationHistoryService _notificationHistoryService;
         private readonly IFcmPushSender _fcmPushSender;
         private readonly ILogger<PushNotificationService> _logger;
 
         public PushNotificationService(
             IPushNotificationRepository repository,
+            INotificationHistoryService notificationHistoryService,
             IFcmPushSender fcmPushSender,
             ILogger<PushNotificationService> logger)
         {
             _repository = repository;
+            _notificationHistoryService = notificationHistoryService;
             _fcmPushSender = fcmPushSender;
             _logger = logger;
         }
@@ -27,6 +30,16 @@ namespace HospitalMobileAPPApi.Services
         public Task UnregisterDeviceTokenAsync(UnregisterDeviceTokenRequest request)
         {
             return _repository.UnregisterDeviceTokenAsync(request);
+        }
+
+        public Task<List<PatientDeviceToken>> GetRegisteredDevicesAsync(string mrNo)
+        {
+            return _repository.GetActiveTokensAsync(mrNo);
+        }
+
+        public Task UnregisterAllDeviceTokensAsync(string mrNo)
+        {
+            return _repository.UnregisterAllTokensAsync(mrNo);
         }
 
         public async Task<PushSendResult> SendProfileUpdatedNotificationAsync(string mrNo, string? firstName)
@@ -97,6 +110,24 @@ namespace HospitalMobileAPPApi.Services
             Dictionary<string, string>? data = null)
         {
             var result = new PushSendResult();
+            data ??= new Dictionary<string, string>();
+            data["type"] = notificationType;
+            data["mrNo"] = mrNo;
+
+            try
+            {
+                await _notificationHistoryService.RecordNotificationAsync(
+                    mrNo,
+                    title,
+                    body,
+                    notificationType,
+                    data);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist notification history for MR No {MrNo}", mrNo);
+            }
+
             var tokens = await _repository.GetActiveTokensAsync(mrNo);
             result.TotalTokens = tokens.Count;
 
@@ -105,10 +136,6 @@ namespace HospitalMobileAPPApi.Services
                 _logger.LogInformation("No active device tokens found for MR No {MrNo}", mrNo);
                 return result;
             }
-
-            data ??= new Dictionary<string, string>();
-            data["type"] = notificationType;
-            data["mrNo"] = mrNo;
 
             foreach (var token in tokens)
             {
