@@ -1,3 +1,4 @@
+using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -17,16 +18,25 @@ namespace HospitalMobileAPPApi.Controllers
 
         private readonly IPatientService _patService;
         private readonly IRegistrationService _registrationService;
+        private readonly IPatientProfilePhotoService _profilePhotoService;
+        private readonly IWebHostEnvironment _environment;
         private readonly IMemoryCache _cache;
+        private readonly ILogger<PatientController> _logger;
 
         public PatientController(
             IPatientService patService,
             IRegistrationService registrationService,
-            IMemoryCache cache)
+            IPatientProfilePhotoService profilePhotoService,
+            IWebHostEnvironment environment,
+            IMemoryCache cache,
+            ILogger<PatientController> logger)
         {
             _patService = patService;
             _registrationService = registrationService;
+            _profilePhotoService = profilePhotoService;
+            _environment = environment;
             _cache = cache;
+            _logger = logger;
         }
 
         [HttpGet]
@@ -62,6 +72,8 @@ namespace HospitalMobileAPPApi.Controllers
                 return NotFound(new { message = "No patient found" });
             }
 
+            await AttachProfilePhotoAsync(patient.Profile);
+
             return Ok(new
             {
                 profile = patient.Profile,
@@ -80,39 +92,21 @@ namespace HospitalMobileAPPApi.Controllers
         public async Task<IActionResult> GetLaboratoryReports(string MR_NO)
         {
             var labReports = await _patService.GetPatientReports(MR_NO);
-
-            if (labReports == null || !labReports.Any())
-            {
-                return NotFound(new { message = "No reports found" });
-            }
-
-            return Ok(labReports);
+            return Ok(labReports ?? new List<LabReportModel>());
         }
 
         [HttpGet("{MR_NO}/gastroReports")]
         public async Task<IActionResult> GetGastroReports(string MR_NO)
         {
             var gastroReports = await _patService.GetGastroReports(MR_NO);
-
-            if (gastroReports == null || !gastroReports.Any())
-            {
-                return NotFound(new { message = "No reports found" });
-            }
-
-            return Ok(gastroReports);
+            return Ok(gastroReports ?? new List<LabReportModel>());
         }
 
         [HttpGet("{MR_NO}/radiologyReports")]
         public async Task<IActionResult> GetRadiology(string MR_NO)
         {
             var radiologyReports = await _patService.GetRadiology(MR_NO);
-
-            if (radiologyReports == null || !radiologyReports.Any())
-            {
-                return NotFound(new { message = "No reports found" });
-            }
-
-            return Ok(radiologyReports);
+            return Ok(radiologyReports ?? new List<LabReportModel>());
         }
 
         [HttpGet("GetReportFromWebsite/{id}")]
@@ -136,13 +130,7 @@ namespace HospitalMobileAPPApi.Controllers
         public async Task<IActionResult> GetPrescriptions(string MR_NO)
         {
             var prescriptions = await _patService.GetPrescriptions(MR_NO);
-
-            if (prescriptions == null || !prescriptions.Any())
-            {
-                return NotFound(new { message = "No prescriptions found" });
-            }
-
-            return Ok(prescriptions);
+            return Ok(prescriptions ?? new List<PrescriptionModel>());
         }
 
         [AllowAnonymous]
@@ -237,12 +225,110 @@ namespace HospitalMobileAPPApi.Controllers
             }
 
             var profile = await _patService.GetPatientProfileAsync(request.MrNo, 1, 20);
+            await AttachProfilePhotoAsync(profile?.Profile);
 
             return Ok(new
             {
                 message = "Profile updated successfully",
                 profile = profile?.Profile,
             });
+        }
+
+        [HttpPost("profile/photo")]
+        [RequestSizeLimit(6 * 1024 * 1024)]
+        public async Task<IActionResult> UploadProfilePhoto(
+            [FromQuery] string mrNo,
+            IFormFile file)
+        {
+            if (string.IsNullOrWhiteSpace(mrNo))
+            {
+                return BadRequest(new { success = false, message = "MR number is required" });
+            }
+
+            if (!PatientAuthorizationHelper.IsAuthorizedForMrNo(User, mrNo))
+            {
+                return Forbid();
+            }
+
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { success = false, message = "Photo file is required" });
+            }
+
+            try
+            {
+                var webRoot = _environment.WebRootPath
+                    ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
+                var imageUrl = await _profilePhotoService.SavePhotoAsync(mrNo, file, webRoot);
+                return Ok(new
+                {
+                    success = true,
+                    message = "Profile photo updated",
+                    profileImageUrl = imageUrl,
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to upload profile photo for {MrNo}", mrNo);
+                return StatusCode(500, new { success = false, message = "Could not save profile photo" });
+            }
+        }
+
+        [HttpDelete("profile/photo")]
+        public async Task<IActionResult> RemoveProfilePhoto([FromQuery] string mrNo)
+        {
+            if (string.IsNullOrWhiteSpace(mrNo))
+            {
+                return BadRequest(new { success = false, message = "MR number is required" });
+            }
+
+            if (!PatientAuthorizationHelper.IsAuthorizedForMrNo(User, mrNo))
+            {
+                return Forbid();
+            }
+
+            try
+            {
+                var webRoot = _environment.WebRootPath
+                    ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
+                await _profilePhotoService.RemovePhotoAsync(mrNo, webRoot);
+                return Ok(new
+                {
+                    success = true,
+                    message = "Profile photo removed",
+                    profileImageUrl = (string?)null,
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to remove profile photo for {MrNo}", mrNo);
+                return StatusCode(500, new { success = false, message = "Could not remove profile photo" });
+            }
+        }
+
+        private async Task AttachProfilePhotoAsync(PatientDetails? profile)
+        {
+            if (profile == null || string.IsNullOrWhiteSpace(profile.MrNo))
+            {
+                return;
+            }
+
+            try
+            {
+                var path = await _profilePhotoService.GetImagePathAsync(profile.MrNo);
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    profile.ProfileImageUrl = path.StartsWith('/') ? path : $"/{path}";
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not load profile photo for {MrNo}", profile.MrNo);
+            }
         }
 
         [AllowAnonymous]
@@ -396,11 +482,6 @@ namespace HospitalMobileAPPApi.Controllers
 
             var result = await _patService.GetDischargeHistoryAsync(mrno, pageNumber, pageSize);
 
-            if (result.Data == null || !result.Data.Any())
-            {
-                return NotFound(new { message = "No discharge history found...." });
-            }
-
             Response.Headers["X-Page-Number"] = result.PageNumber.ToString();
             Response.Headers["X-Page-Size"] = result.PageSize.ToString();
             Response.Headers["X-Total-Count"] = result.TotalRecords.ToString();
@@ -411,7 +492,7 @@ namespace HospitalMobileAPPApi.Controllers
                 pageSize = result.PageSize,
                 totalRecords = result.TotalRecords,
                 totalPages = result.TotalPages,
-                data = result.Data,
+                data = result.Data ?? new List<PatientDischargeHistory>(),
             });
         }
     }

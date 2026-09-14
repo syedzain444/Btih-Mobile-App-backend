@@ -21,6 +21,7 @@ namespace HospitalMobileAPPApi.Services
             "PATIENT_NOTIFICATION",
             "PATIENT_TRUSTED_DEVICE",
             "GUEST_PATIENT",
+            "PATIENT_PROFILE_PHOTO",
         };
 
         private readonly IConfiguration _configuration;

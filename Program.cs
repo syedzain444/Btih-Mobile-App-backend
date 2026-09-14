@@ -67,6 +67,8 @@ builder.Services.AddScoped<ITrustedDeviceService, TrustedDeviceService>();
 builder.Services.AddScoped<ITrustedDeviceRepository, TrustedDeviceRepository>();
 builder.Services.AddScoped<IGuestService, GuestService>();
 builder.Services.AddScoped<IGuestRepository, GuestRepository>();
+builder.Services.AddScoped<IPatientProfilePhotoService, PatientProfilePhotoService>();
+builder.Services.AddScoped<IPatientProfilePhotoRepository, PatientProfilePhotoRepository>();
 builder.Services.AddSingleton<IFcmPushSender, FcmPushSender>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IRegistrationRepository, RegistrationRepository>();

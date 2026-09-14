@@ -1,21 +1,39 @@
 using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Repository;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace HospitalMobileAPPApi.Services
 {
     public class BillingService : IBillingService
     {
-        private readonly IBillingRepository _repository;
+        private static readonly TimeSpan InvoiceCacheTtl = TimeSpan.FromMinutes(2);
 
-        public BillingService(IBillingRepository repository)
+        private readonly IBillingRepository _repository;
+        private readonly IMemoryCache _cache;
+
+        public BillingService(IBillingRepository repository, IMemoryCache cache)
         {
             _repository = repository;
+            _cache = cache;
+        }
+
+        private async Task<IReadOnlyList<BillingInvoiceDto>> GetInvoicesCachedAsync(string mrNo)
+        {
+            var key = $"billing:invoices:{mrNo.Trim()}";
+            if (_cache.TryGetValue(key, out IReadOnlyList<BillingInvoiceDto>? cached) && cached != null)
+            {
+                return cached;
+            }
+
+            var invoices = await _repository.GetInvoicesByMrNoAsync(mrNo.Trim());
+            _cache.Set(key, invoices, InvoiceCacheTtl);
+            return invoices;
         }
 
         public async Task<BillingOverviewDto> GetOverviewAsync(string mrNo)
         {
-            var invoices = await _repository.GetInvoicesByMrNoAsync(mrNo.Trim());
+            var invoices = await GetInvoicesCachedAsync(mrNo);
             var activeInvoices = invoices.Where(i => !IsCancelled(i)).ToList();
             var paidInvoices = activeInvoices.Where(i => i.PaymentStatus == "paid").ToList();
             var pendingInvoices = activeInvoices.Where(i => i.PaymentStatus == "pending").ToList();
@@ -60,7 +78,7 @@ namespace HospitalMobileAPPApi.Services
             string? search = null,
             string? paymentStatus = null)
         {
-            var invoices = await _repository.GetInvoicesByMrNoAsync(mrNo.Trim());
+            var invoices = await GetInvoicesCachedAsync(mrNo);
             IEnumerable<BillingInvoiceDto> filtered = invoices;
 
             if (!string.IsNullOrWhiteSpace(departmentCode))
@@ -133,14 +151,14 @@ namespace HospitalMobileAPPApi.Services
                 return null;
             }
 
-            var invoices = await _repository.GetInvoicesByMrNoAsync(mrNo.Trim());
+            var invoices = await GetInvoicesCachedAsync(mrNo);
             return invoices.FirstOrDefault(i =>
                 string.Equals(i.BillId, billId.Trim(), StringComparison.OrdinalIgnoreCase));
         }
 
         public async Task<BillingPaymentSummaryDto> GetPaymentSummaryAsync(string mrNo)
         {
-            var invoices = await _repository.GetInvoicesByMrNoAsync(mrNo.Trim());
+            var invoices = await GetInvoicesCachedAsync(mrNo);
             var activeInvoices = invoices.Where(i => !IsCancelled(i)).ToList();
             var paidInvoices = activeInvoices
                 .Where(i => i.PaymentStatus == "paid")

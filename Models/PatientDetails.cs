@@ -11,5 +11,6 @@ namespace HospitalMobileAPPApi.Models
         public string? ContactNo { get; set; }
         public string? BloodGroup { get; set; }
         public string? EmailAddress { get; set; }
+        public string? ProfileImageUrl { get; set; }
     }
 }
