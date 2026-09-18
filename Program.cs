@@ -61,6 +61,8 @@ builder.Services.AddScoped<IPushNotificationService, PushNotificationService>();
 builder.Services.AddScoped<IPushNotificationRepository, PushNotificationRepository>();
 builder.Services.AddScoped<INotificationHistoryService, NotificationHistoryService>();
 builder.Services.AddScoped<INotificationHistoryRepository, NotificationHistoryRepository>();
+builder.Services.AddScoped<IRecentActivityService, RecentActivityService>();
+builder.Services.AddScoped<IRecentActivityRepository, RecentActivityRepository>();
 builder.Services.AddScoped<IBillingService, BillingService>();
 builder.Services.AddScoped<IBillingRepository, BillingRepository>();
 builder.Services.AddScoped<ITrustedDeviceService, TrustedDeviceService>();

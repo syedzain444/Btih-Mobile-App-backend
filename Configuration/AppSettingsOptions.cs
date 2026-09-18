@@ -23,8 +23,9 @@ namespace HospitalMobileAPPApi.Configuration
         public int LoginChallengeMinutes { get; set; } = 5;
 
         /// <summary>
-        /// Development only — contacts that skip login OTP and are auto-trusted when SMS is unavailable.
+        /// Contacts that skip login OTP and are auto-trusted (temporary SMS bypass).
         /// Use normalized numbers like 03339993577 or 3339993577.
+        /// Empty list = no bypass. Remove numbers once SMS is whitelisted on the server.
         /// </summary>
         public string[] DevAutoTrustContacts { get; set; } = Array.Empty<string>();
     }

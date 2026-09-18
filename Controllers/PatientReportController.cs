@@ -53,9 +53,8 @@ namespace HospitalMobileAPPApi.Controllers
 
                 var report = new LocalReport();
 
-                string reportPath = Path.Combine(_env.ContentRootPath, "Reports", $"{reportName}.rdlc");
-
-                if (!System.IO.File.Exists(reportPath))
+                string reportPath = ResolveRdlcPath(reportName);
+                if (string.IsNullOrEmpty(reportPath))
                     return NotFound($"RDLC file not found: {reportName}.rdlc");
 
                 report.ReportPath = reportPath;
@@ -438,15 +437,15 @@ namespace HospitalMobileAPPApi.Controllers
                 //----------------------------------
 
                 string rdlcFile = Path.GetFileName(config.Rows[0]["RPT_LOCATION"].ToString());
+                string reportPath = ResolveRdlcPath(Path.GetFileNameWithoutExtension(rdlcFile));
+                if (string.IsNullOrEmpty(reportPath))
+                {
+                    // Billing always uses Advance_Reciept.rdlc (rptId 26/27).
+                    reportPath = ResolveRdlcPath("Advance_Reciept");
+                }
 
-                string reportPath = Path.Combine(
-                    _env.ContentRootPath,
-                    "Reports",
-                    rdlcFile
-                );
-
-                if (!System.IO.File.Exists(reportPath))
-                    return NotFound("RDLC not found: " + reportPath);
+                if (string.IsNullOrEmpty(reportPath))
+                    return NotFound("RDLC not found: " + rdlcFile);
 
                 report.ReportPath = reportPath;
 
@@ -505,6 +504,15 @@ namespace HospitalMobileAPPApi.Controllers
                 {
                     cmd.Parameters.Add("pvid", param);
                     data = cmd.ExecuteScalar()?.ToString();
+                }
+
+                if (string.IsNullOrWhiteSpace(data))
+                {
+                    return NotFound(new
+                    {
+                        message = "No active discharge record found for this visit.",
+                        patientVisitId = param,
+                    });
                 }
 
 
@@ -595,10 +603,15 @@ namespace HospitalMobileAPPApi.Controllers
                 // Load RDLC Path from DB
                 //----------------------------------
                 string rdlcFile = Path.GetFileName(config.Rows[0]["RPT_LOCATION"].ToString());
-                string reportPath = Path.Combine(_env.ContentRootPath, "Reports", rdlcFile);
+                string reportPath = ResolveRdlcPath(Path.GetFileNameWithoutExtension(rdlcFile));
+                if (string.IsNullOrEmpty(reportPath))
+                {
+                    // Known discharge template (filename has historical typo "Cerificate").
+                    reportPath = ResolveRdlcPath("DischargeCerificate");
+                }
 
-                if (!System.IO.File.Exists(reportPath))
-                    return NotFound("RDLC not found: " + reportPath);
+                if (string.IsNullOrEmpty(reportPath))
+                    return NotFound("RDLC not found: " + rdlcFile);
 
                 report.ReportPath = reportPath;
 
@@ -619,6 +632,34 @@ namespace HospitalMobileAPPApi.Controllers
             }
         }
 
+
+        /// <summary>
+        /// Resolves an RDLC under ContentRoot/Reports by file name (case-insensitive).
+        /// </summary>
+        private string? ResolveRdlcPath(string? reportNameOrFile)
+        {
+            if (string.IsNullOrWhiteSpace(reportNameOrFile))
+                return null;
+
+            var reportsDir = Path.Combine(_env.ContentRootPath, "Reports");
+            if (!Directory.Exists(reportsDir))
+                return null;
+
+            var stem = Path.GetFileNameWithoutExtension(reportNameOrFile.Trim());
+            var exact = Path.Combine(reportsDir, $"{stem}.rdlc");
+            if (System.IO.File.Exists(exact))
+                return exact;
+
+            // Case-insensitive match (Linux deploy / DB path casing like LABRPT.rdlc).
+            var match = Directory.EnumerateFiles(reportsDir, "*.rdlc")
+                .FirstOrDefault(f =>
+                    string.Equals(
+                        Path.GetFileNameWithoutExtension(f),
+                        stem,
+                        StringComparison.OrdinalIgnoreCase));
+
+            return match;
+        }
 
         private string GetString(OracleConnection con, string query, string param)
         {

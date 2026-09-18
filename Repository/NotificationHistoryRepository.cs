@@ -227,6 +227,7 @@ namespace HospitalMobileAPPApi.Repository
             {
                 "all" => null,
                 "appointments" => "appointments",
+                "medications" => "medications",
                 "lab" => "lab",
                 "records" => "records",
                 "billing" => "billing",

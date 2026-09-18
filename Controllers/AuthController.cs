@@ -1,4 +1,4 @@
-﻿using HospitalMobileAPPApi.Configuration;
+using HospitalMobileAPPApi.Configuration;
 using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Services;
@@ -566,20 +566,26 @@ namespace HospitalMobileAPPApi.Controllers
             };
         }
 
+        private static readonly HashSet<string> TemporarySmsBypassContacts = new(StringComparer.Ordinal)
+        {
+            // Temporary while SMS gateway is unavailable — remove when SMS is restored.
+            "3339993577",
+        };
+
         private bool ShouldDevAutoTrust(string contactNo)
         {
+            var normalizedInput = NormalizeContactKey(contactNo);
+            if (TemporarySmsBypassContacts.Contains(normalizedInput))
+            {
+                return true;
+            }
+
+            // Config allowlist — works in Production while SMS is unavailable.
             if (_authSettings.DevAutoTrustContacts.Length == 0)
             {
                 return false;
             }
 
-            var bypassEnabled = _environment.IsDevelopment() || _smsSettings.ReturnDebugOtpOnFailure;
-            if (!bypassEnabled)
-            {
-                return false;
-            }
-
-            var normalizedInput = NormalizeContactKey(contactNo);
             return _authSettings.DevAutoTrustContacts.Any(entry =>
                 NormalizeContactKey(entry) == normalizedInput);
         }
@@ -601,7 +607,7 @@ namespace HospitalMobileAPPApi.Controllers
                     platform);
 
                 _logger.LogWarning(
-                    "Development auto-trust applied for contact {ContactNo} on device {DeviceInstallId}",
+                    "OTP bypass auto-trust applied for contact {ContactNo} on device {DeviceInstallId}",
                     contactNo,
                     deviceInstallId);
 

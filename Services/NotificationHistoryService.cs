@@ -97,7 +97,7 @@ namespace HospitalMobileAPPApi.Services
                 PushNotificationTypes.AppointmentReminder => "appointments",
                 PushNotificationTypes.ReportReady => "records",
                 PushNotificationTypes.ProfileUpdated => "general",
-                "medication_reminder" => "general",
+                PushNotificationTypes.MedicationReminder => "medications",
                 _ => "general",
             };
         }
