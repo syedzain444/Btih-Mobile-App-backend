@@ -51,6 +51,7 @@ namespace HospitalMobileAPPApi.Services
             "PATIENT_NOTIFICATION",
             "PATIENT_RECENT_ACTIVITY",
             "PATIENT_TRUSTED_DEVICE",
+            "PATIENT_APP_PIN",
             "GUEST_PATIENT",
             "PATIENT_PROFILE_PHOTO",
         };

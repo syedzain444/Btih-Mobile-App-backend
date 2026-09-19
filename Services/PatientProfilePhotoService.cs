@@ -54,6 +54,16 @@ namespace HospitalMobileAPPApi.Services
             }
 
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(extension))
+            {
+                extension = file.ContentType?.ToLowerInvariant() switch
+                {
+                    "image/png" => ".png",
+                    "image/webp" => ".webp",
+                    _ => ".jpg",
+                };
+            }
+
             if (!AllowedExtensions.Contains(extension))
             {
                 throw new InvalidOperationException("Only JPG, PNG, or WEBP photos are allowed");

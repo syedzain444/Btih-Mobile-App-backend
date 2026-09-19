@@ -544,6 +544,79 @@ namespace HospitalMobileAPPApi.Controllers
             return Ok(new { message = "Password updated successfully" });
         }
 
+        /// <summary>
+        /// Change password while logged in (current password + new password).
+        /// Updates PATIENT_MST.PATIENT_PASSWORD so the next login uses the new password.
+        /// </summary>
+        [Authorize]
+        [HttpPost("changePassword")]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.MrNo) ||
+                string.IsNullOrWhiteSpace(request.CurrentPassword) ||
+                string.IsNullOrWhiteSpace(request.NewPassword))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "MR number, current password, and new password are required",
+                });
+            }
+
+            if (request.NewPassword.Length < 6)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "New password must be at least 6 characters",
+                });
+            }
+
+            if (!PatientAuthorizationHelper.IsAuthorizedForMrNo(User, request.MrNo))
+            {
+                return Forbid();
+            }
+
+            var contactNo = request.ContactNo?.Trim();
+            if (string.IsNullOrWhiteSpace(contactNo))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Registered mobile number is required",
+                });
+            }
+
+            var login = await _authService.LoginAsync(contactNo, request.CurrentPassword);
+            if (login == null ||
+                !string.Equals(login.MrNo?.Trim(), request.MrNo.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return Unauthorized(new
+                {
+                    success = false,
+                    message = "Current password is incorrect",
+                });
+            }
+
+            var updated = await _patientService.UpdatePatientPassword(
+                request.MrNo.Trim(),
+                request.NewPassword);
+            if (!updated)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Password update failed",
+                });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                message = "Password changed successfully",
+            });
+        }
+
         private object BuildLoginSuccessResponse(
             string mrNo,
             string contactNo,

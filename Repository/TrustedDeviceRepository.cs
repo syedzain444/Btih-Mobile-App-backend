@@ -175,7 +175,14 @@ namespace HospitalMobileAPPApi.Repository
                 });
             }
 
-            return result;
+            return result
+                .GroupBy(
+                    d => string.IsNullOrWhiteSpace(d.DeviceInstallId)
+                        ? $"id:{d.TrustedDeviceId}"
+                        : d.DeviceInstallId.Trim(),
+                    StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
         }
 
         public async Task<bool> RevokeTrustedDeviceAsync(string mrNo, int trustedDeviceId)

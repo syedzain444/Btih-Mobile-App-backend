@@ -596,7 +596,6 @@ namespace HospitalMobileAPPApi.Repository
         public async Task<int> UpdatePatientPassword(string mrno, string patientPassword)
         {
             var connStr = _configuration.GetConnectionString("HMISConnection");
-            int number = 0;
             try
             {
                 await using var conn = new OracleConnection(connStr);
@@ -606,19 +605,17 @@ namespace HospitalMobileAPPApi.Repository
             WHERE MR_NO = :mrno
         ", conn);
 
-                cmd.Parameters.Add(new OracleParameter("patientPassword", patientPassword));
-                cmd.Parameters.Add(new OracleParameter("mrno", mrno));
+                cmd.BindByName = true;
+                cmd.Parameters.Add("patientPassword", OracleDbType.Varchar2).Value = patientPassword;
+                cmd.Parameters.Add("mrno", OracleDbType.Varchar2).Value = mrno.Trim();
 
                 await conn.OpenAsync();
-
                 return await cmd.ExecuteNonQueryAsync();
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-
+                return 0;
             }
-            return number;
-
         }
 
         public async Task<List<PatientAppointment>> GetAppointments(string MR_NO)

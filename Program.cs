@@ -71,6 +71,8 @@ builder.Services.AddScoped<IGuestService, GuestService>();
 builder.Services.AddScoped<IGuestRepository, GuestRepository>();
 builder.Services.AddScoped<IPatientProfilePhotoService, PatientProfilePhotoService>();
 builder.Services.AddScoped<IPatientProfilePhotoRepository, PatientProfilePhotoRepository>();
+builder.Services.AddScoped<IAppPinService, AppPinService>();
+builder.Services.AddScoped<IAppPinRepository, AppPinRepository>();
 builder.Services.AddSingleton<IFcmPushSender, FcmPushSender>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IRegistrationRepository, RegistrationRepository>();
