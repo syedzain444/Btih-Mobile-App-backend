@@ -76,6 +76,91 @@ namespace HospitalMobileAPPApi.Controllers
             });
         }
 
+        /// <summary>
+        /// Inbox grouped by category for the categorized notifications screen.
+        /// </summary>
+        [HttpGet("inbox-grouped")]
+        public async Task<IActionResult> GetInboxGrouped(
+            [FromQuery] string mrNo,
+            [FromQuery] int pageSize = 100)
+        {
+            if (string.IsNullOrWhiteSpace(mrNo))
+            {
+                return BadRequest(new { success = false, message = "MR number is required" });
+            }
+
+            if (!PatientAuthorizationHelper.IsAuthorizedForMrNo(User, mrNo))
+            {
+                return Forbid();
+            }
+
+            if (pageSize < 1) pageSize = 100;
+            if (pageSize > 200) pageSize = 200;
+
+            var inbox = await _notificationHistoryService.GetInboxAsync(
+                mrNo.Trim(),
+                1,
+                pageSize,
+                "all");
+
+            var categoryOrder = new[]
+            {
+                NotificationCategories.Appointments,
+                NotificationCategories.Medications,
+                NotificationCategories.Lab,
+                NotificationCategories.Records,
+                NotificationCategories.Billing,
+                NotificationCategories.Messaging,
+                NotificationCategories.Security,
+                NotificationCategories.General,
+            };
+
+            var grouped = categoryOrder
+                .Select(category =>
+                {
+                    var items = inbox.Data
+                        .Where(n => string.Equals(
+                            n.Category,
+                            category,
+                            StringComparison.OrdinalIgnoreCase))
+                        .Select(MapNotification)
+                        .ToList();
+
+                    return new
+                    {
+                        category,
+                        title = CategoryTitle(category),
+                        count = items.Count,
+                        unreadCount = inbox.Data.Count(n =>
+                            string.Equals(n.Category, category, StringComparison.OrdinalIgnoreCase) &&
+                            !n.IsRead),
+                        items,
+                    };
+                })
+                .Where(section => section.count > 0)
+                .ToList();
+
+            return Ok(new
+            {
+                success = true,
+                unreadCount = inbox.UnreadCount,
+                totalRecords = inbox.TotalRecords,
+                categories = grouped,
+            });
+        }
+
+        private static string CategoryTitle(string category) => category switch
+        {
+            NotificationCategories.Appointments => "Appointments",
+            NotificationCategories.Medications => "Medications",
+            NotificationCategories.Lab => "Lab Reports",
+            NotificationCategories.Records => "Medical Records",
+            NotificationCategories.Billing => "Billing",
+            NotificationCategories.Messaging => "Messages",
+            NotificationCategories.Security => "Security",
+            _ => "Hospital Updates",
+        };
+
         /// <summary>Unread notification count for dashboard bell badge.</summary>
         [HttpGet("unread-count")]
         public async Task<IActionResult> GetUnreadCount([FromQuery] string mrNo)
@@ -222,6 +307,7 @@ namespace HospitalMobileAPPApi.Controllers
                 payload,
                 isRead = record.IsRead,
                 createdAt = record.CreatedAt,
+                createdAtDisplay = record.CreatedAt.ToString("dd MMM yyyy, hh:mm tt"),
                 readAt = record.ReadAt,
             };
         }

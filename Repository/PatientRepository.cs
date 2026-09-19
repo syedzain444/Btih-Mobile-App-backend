@@ -599,18 +599,38 @@ namespace HospitalMobileAPPApi.Repository
             try
             {
                 await using var conn = new OracleConnection(connStr);
-                await using var cmd = new OracleCommand(@"
-            UPDATE PATIENT_MST
-            SET PATIENT_PASSWORD = :patientPassword
-            WHERE MR_NO = :mrno
-        ", conn);
-
-                cmd.BindByName = true;
-                cmd.Parameters.Add("patientPassword", OracleDbType.Varchar2).Value = patientPassword;
-                cmd.Parameters.Add("mrno", OracleDbType.Varchar2).Value = mrno.Trim();
-
                 await conn.OpenAsync();
-                return await cmd.ExecuteNonQueryAsync();
+
+                var total = 0;
+                var trimmedMr = mrno.Trim();
+
+                // Primary HMIS login table
+                await using (var cmd = new OracleCommand(@"
+                    UPDATE PATIENT_MST
+                    SET PATIENT_PASSWORD = :patientPassword
+                    WHERE MR_NO = :mrno", conn))
+                {
+                    cmd.BindByName = true;
+                    cmd.Parameters.Add("patientPassword", OracleDbType.Varchar2).Value = patientPassword;
+                    cmd.Parameters.Add("mrno", OracleDbType.Varchar2).Value = trimmedMr;
+                    total += await cmd.ExecuteNonQueryAsync();
+                }
+
+                // Mobile registration login table (same password used on next sign-in)
+                await using (var mobileCmd = new OracleCommand(@"
+                    UPDATE MOBILE_PATIENT_REGISTRATION
+                    SET PATIENT_PASSWORD = :patientPassword
+                    WHERE MR_NO = :mrno
+                      AND IS_ACTIVE = 'Y'", conn))
+                {
+                    mobileCmd.BindByName = true;
+                    mobileCmd.Parameters.Add("patientPassword", OracleDbType.Varchar2).Value =
+                        patientPassword;
+                    mobileCmd.Parameters.Add("mrno", OracleDbType.Varchar2).Value = trimmedMr;
+                    total += await mobileCmd.ExecuteNonQueryAsync();
+                }
+
+                return total;
             }
             catch (Exception)
             {

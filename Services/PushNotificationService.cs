@@ -116,12 +116,20 @@ namespace HospitalMobileAPPApi.Services
 
             try
             {
-                await _notificationHistoryService.RecordNotificationAsync(
+                var category = NotificationHistoryService.ResolveCategory(notificationType, data);
+                var priority = data.TryGetValue("priority", out var p) && !string.IsNullOrWhiteSpace(p)
+                    ? p.Trim().ToLowerInvariant()
+                    : NotificationHistoryService.ResolvePriority(notificationType);
+
+                var notificationId = await _notificationHistoryService.RecordNotificationAsync(
                     mrNo,
                     title,
                     body,
                     notificationType,
-                    data);
+                    data,
+                    category,
+                    priority);
+                result.NotificationId = notificationId;
             }
             catch (Exception ex)
             {

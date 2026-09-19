@@ -2022,9 +2022,6 @@
                   <Style>None</Style>
                   <Width>0.5pt</Width>
                 </Border>
-                <BottomBorder>
-                  <Style>Dotted</Style>
-                </BottomBorder>
               </Style>
             </Textbox>
             <Textbox Name="PRINTEDBY">

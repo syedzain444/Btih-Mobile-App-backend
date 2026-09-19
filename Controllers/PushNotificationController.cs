@@ -154,5 +154,65 @@ namespace HospitalMobileAPPApi.Controllers
                 result,
             });
         }
+
+        /// <summary>
+        /// Send any typed patient notification (saved to PATIENT_NOTIFICATION with category + createdAt).
+        /// </summary>
+        [HttpPost("send")]
+        public async Task<IActionResult> SendTypedNotification([FromBody] SendTypedNotificationRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.MrNo) ||
+                string.IsNullOrWhiteSpace(request.NotificationType) ||
+                string.IsNullOrWhiteSpace(request.Title) ||
+                string.IsNullOrWhiteSpace(request.Body))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "MR No, notificationType, title, and body are required",
+                });
+            }
+
+            var type = request.NotificationType.Trim().ToLowerInvariant().Replace('-', '_');
+            if (!PushNotificationTypes.All.Contains(type))
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    message = $"Unknown notificationType '{request.NotificationType}'. See PushNotificationTypes catalog.",
+                    allowedTypes = PushNotificationTypes.All.OrderBy(x => x),
+                });
+            }
+
+            var data = request.Payload != null
+                ? new Dictionary<string, string>(request.Payload)
+                : new Dictionary<string, string>();
+
+            if (!string.IsNullOrWhiteSpace(request.Category))
+            {
+                data["category"] = request.Category.Trim().ToLowerInvariant();
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Priority))
+            {
+                data["priority"] = request.Priority.Trim().ToLowerInvariant();
+            }
+
+            var result = await _pushNotificationService.SendToPatientAsync(
+                request.MrNo.Trim(),
+                request.Title.Trim(),
+                request.Body.Trim(),
+                type,
+                data);
+
+            return Ok(new
+            {
+                success = true,
+                message = "Notification processed",
+                notificationType = type,
+                category = NotificationHistoryService.ResolveCategory(type, data),
+                result,
+            });
+        }
     }
 }
