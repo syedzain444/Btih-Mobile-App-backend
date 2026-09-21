@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +12,11 @@ namespace HospitalMobileAPPApi.Controllers
     [Tags("Security")]
     public class AppPinController : ControllerBase
     {
+        /// <summary>SHA-256 hex digest length (what the Flutter app sends).</summary>
+        private static readonly Regex Sha256Hex = new(
+            @"^[a-fA-F0-9]{64}$",
+            RegexOptions.Compiled);
+
         private readonly IAppPinService _appPinService;
 
         public AppPinController(IAppPinService appPinService)
@@ -48,12 +54,15 @@ namespace HospitalMobileAPPApi.Controllers
                 });
             }
 
-            if (request.PinHash.Trim().Length < 32)
+            var pinHash = request.PinHash.Trim();
+            if (!Sha256Hex.IsMatch(pinHash))
             {
                 return BadRequest(new
                 {
                     success = false,
-                    message = "PIN hash is invalid",
+                    message =
+                        "pinHash must be a 64-character SHA-256 hex string " +
+                        "(hash of \"{mrNo}::{pin}\"). Do not send the JWT access token here.",
                 });
             }
 
@@ -64,7 +73,7 @@ namespace HospitalMobileAPPApi.Controllers
 
             await _appPinService.UpsertPinAsync(
                 request.MrNo,
-                request.PinHash,
+                pinHash.ToLowerInvariant(),
                 request.DeviceLabel);
 
             return Ok(new { success = true, message = "App PIN saved" });
@@ -90,8 +99,14 @@ namespace HospitalMobileAPPApi.Controllers
 
     public class SetAppPinRequest
     {
+        /// <example>010-002-152</example>
         public string MrNo { get; set; } = string.Empty;
+
+        /// <summary>SHA-256 hex of "{mrNo}::{pin}" — not the JWT.</summary>
+        /// <example>e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855</example>
         public string PinHash { get; set; } = string.Empty;
+
+        /// <example>vivo V2061</example>
         public string? DeviceLabel { get; set; }
     }
 

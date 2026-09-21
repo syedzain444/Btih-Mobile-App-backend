@@ -24,9 +24,9 @@ namespace HospitalMobileAPPApi.Services
             var record = new PatientNotificationRecord
             {
                 MrNo = mrNo.Trim(),
-                NotificationType = notificationType.Trim(),
-                Category = category ?? ResolveCategory(notificationType, payload),
-                Priority = priority ?? ResolvePriority(notificationType),
+                NotificationType = notificationType.Trim().ToLowerInvariant(),
+                Category = (category ?? ResolveCategory(notificationType, payload)).Trim().ToLowerInvariant(),
+                Priority = (priority ?? ResolvePriority(notificationType)).Trim().ToLowerInvariant(),
                 Title = title.Trim(),
                 Body = body.Trim(),
                 PayloadJson = NotificationHistoryRepository.SerializePayload(payload),
@@ -64,50 +64,115 @@ namespace HospitalMobileAPPApi.Services
             Dictionary<string, string>? payload)
         {
             if (payload != null &&
+                payload.TryGetValue("category", out var explicitCategory) &&
+                !string.IsNullOrWhiteSpace(explicitCategory))
+            {
+                return explicitCategory.Trim().ToLowerInvariant();
+            }
+
+            if (payload != null &&
                 payload.TryGetValue("reportType", out var reportType) &&
                 !string.IsNullOrWhiteSpace(reportType))
             {
                 var normalized = reportType.Trim().ToLowerInvariant();
                 if (normalized.Contains("lab"))
                 {
-                    return "lab";
+                    return NotificationCategories.Lab;
                 }
 
-                if (normalized.Contains("gastro") || normalized.Contains("radio"))
+                if (normalized.Contains("gastro") ||
+                    normalized.Contains("radio") ||
+                    normalized.Contains("discharge"))
                 {
-                    return "records";
+                    return NotificationCategories.Records;
                 }
             }
 
-            if (payload != null &&
-                payload.TryGetValue("screen", out var screen) &&
-                !string.IsNullOrWhiteSpace(screen))
-            {
-                return screen.Trim().ToLowerInvariant() switch
-                {
-                    "appointments" => "appointments",
-                    "reports" => "records",
-                    "billing" => "billing",
-                    _ => "general",
-                };
-            }
+            var type = notificationType.Trim().ToLowerInvariant().Replace('-', '_');
 
-            return notificationType.Trim().ToLowerInvariant() switch
+            return type switch
             {
-                PushNotificationTypes.AppointmentReminder => "appointments",
-                PushNotificationTypes.ReportReady => "records",
-                PushNotificationTypes.ProfileUpdated => "general",
-                PushNotificationTypes.MedicationReminder => "medications",
-                _ => "general",
+                PushNotificationTypes.AppointmentRequestReceived or
+                PushNotificationTypes.AppointmentConfirmed or
+                PushNotificationTypes.AppointmentCancelled or
+                PushNotificationTypes.AppointmentRescheduled or
+                PushNotificationTypes.AppointmentReminder or
+                PushNotificationTypes.FollowUpReminder
+                    => NotificationCategories.Appointments,
+
+                PushNotificationTypes.LabReportReady
+                    => NotificationCategories.Lab,
+
+                PushNotificationTypes.GastroReportReady or
+                PushNotificationTypes.RadiologyReportReady or
+                PushNotificationTypes.DischargeSummaryReady or
+                PushNotificationTypes.VisitSummaryReady or
+                PushNotificationTypes.ReportReady
+                    => NotificationCategories.Records,
+
+                PushNotificationTypes.PrescriptionAdded or
+                PushNotificationTypes.MedicationReminder or
+                PushNotificationTypes.MedicationScheduleUpdated
+                    => NotificationCategories.Medications,
+
+                PushNotificationTypes.BillGenerated or
+                PushNotificationTypes.PaymentPending or
+                PushNotificationTypes.PaymentConfirmed
+                    => NotificationCategories.Billing,
+
+                PushNotificationTypes.MessageReceived or
+                PushNotificationTypes.MessageThreadClosed
+                    => NotificationCategories.Messaging,
+
+                PushNotificationTypes.ProfileUpdated or
+                PushNotificationTypes.PasswordChanged or
+                PushNotificationTypes.AppPinChanged or
+                PushNotificationTypes.TrustedDeviceAdded or
+                PushNotificationTypes.TrustedDeviceRemoved or
+                PushNotificationTypes.NewLoginAlert
+                    => NotificationCategories.Security,
+
+                PushNotificationTypes.HospitalAnnouncement or
+                PushNotificationTypes.HospitalPromotion
+                    => NotificationCategories.General,
+
+                _ when type.Contains("appointment") || type.Contains("follow")
+                    => NotificationCategories.Appointments,
+                _ when type.Contains("medication") || type.Contains("prescription")
+                    => NotificationCategories.Medications,
+                _ when type.Contains("lab")
+                    => NotificationCategories.Lab,
+                _ when type.Contains("bill") || type.Contains("payment")
+                    => NotificationCategories.Billing,
+                _ when type.Contains("message")
+                    => NotificationCategories.Messaging,
+                _ when type.Contains("password") || type.Contains("pin") ||
+                       type.Contains("trusted") || type.Contains("login") ||
+                       type.Contains("profile")
+                    => NotificationCategories.Security,
+                _ => NotificationCategories.General,
             };
         }
 
         public static string ResolvePriority(string notificationType)
         {
-            return notificationType.Trim().ToLowerInvariant() switch
+            var type = notificationType.Trim().ToLowerInvariant().Replace('-', '_');
+            return type switch
             {
-                PushNotificationTypes.AppointmentReminder => "high",
-                PushNotificationTypes.ReportReady => "high",
+                PushNotificationTypes.AppointmentReminder or
+                PushNotificationTypes.AppointmentCancelled or
+                PushNotificationTypes.LabReportReady or
+                PushNotificationTypes.MedicationReminder or
+                PushNotificationTypes.PaymentPending or
+                PushNotificationTypes.MessageReceived or
+                PushNotificationTypes.NewLoginAlert or
+                PushNotificationTypes.PasswordChanged
+                    => "high",
+
+                PushNotificationTypes.HospitalPromotion or
+                PushNotificationTypes.MessageThreadClosed
+                    => "low",
+
                 _ => "normal",
             };
         }
