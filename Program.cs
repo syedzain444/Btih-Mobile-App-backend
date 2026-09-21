@@ -11,10 +11,30 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using QuestPDF.Infrastructure;
+using Serilog;
 using System.Text;
 using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var monitoringSettings = builder.Configuration
+    .GetSection(MonitoringSettings.SectionName)
+    .Get<MonitoringSettings>() ?? new MonitoringSettings();
+
+if (monitoringSettings.EnableSerilogFile)
+{
+    Log.Logger = new LoggerConfiguration()
+        .ReadFrom.Configuration(builder.Configuration)
+        .Enrich.FromLogContext()
+        .WriteTo.Console()
+        .WriteTo.File(
+            monitoringSettings.LogFilePath,
+            rollingInterval: RollingInterval.Day,
+            retainedFileCountLimit: 14)
+        .CreateLogger();
+
+    builder.Host.UseSerilog();
+}
 
 builder.Configuration
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
@@ -28,6 +48,11 @@ builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection(Se
 builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection(RateLimitSettings.SectionName));
 builder.Services.Configure<MessagingSettings>(builder.Configuration.GetSection(MessagingSettings.SectionName));
 builder.Services.Configure<ReminderSettings>(builder.Configuration.GetSection(ReminderSettings.SectionName));
+builder.Services.Configure<PaymentGatewaySettings>(builder.Configuration.GetSection(PaymentGatewaySettings.SectionName));
+builder.Services.Configure<AdminSettings>(builder.Configuration.GetSection(AdminSettings.SectionName));
+builder.Services.Configure<TelemedicineSettings>(builder.Configuration.GetSection(TelemedicineSettings.SectionName));
+builder.Services.Configure<SupportSettings>(builder.Configuration.GetSection(SupportSettings.SectionName));
+builder.Services.Configure<MonitoringSettings>(builder.Configuration.GetSection(MonitoringSettings.SectionName));
 
 DataProtectionConfigurator.ConfigureDataProtection(builder);
 
@@ -84,6 +109,22 @@ builder.Services.AddScoped<IMedicationService, MedicationService>();
 builder.Services.AddScoped<IReminderRepository, ReminderRepository>();
 builder.Services.AddScoped<IReminderService, ReminderService>();
 builder.Services.AddScoped<IMobilePortalSchemaService, MobilePortalSchemaService>();
+builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IAdminRepository, AdminRepository>();
+builder.Services.AddScoped<IAdminPortalRepository, AdminPortalRepository>();
+builder.Services.AddScoped<IAdminService, AdminService>();
+builder.Services.AddScoped<IAdminReportService, AdminReportService>();
+builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<ITelemedicineRepository, TelemedicineRepository>();
+builder.Services.AddScoped<ITelemedicineService, TelemedicineService>();
+builder.Services.AddScoped<IContentRepository, ContentRepository>();
+builder.Services.AddScoped<IContentService, ContentService>();
+builder.Services.AddScoped<ISupportRepository, SupportRepository>();
+builder.Services.AddScoped<ISupportService, SupportService>();
+builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
+builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
 builder.Services.AddHostedService<MedicationReminderBackgroundService>();
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -111,7 +152,20 @@ builder.Services
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AuthorizationPolicies.AdminOnly, policy =>
+        policy.RequireRole(AppRoles.Admin));
+
+    options.AddPolicy(AuthorizationPolicies.StaffOrAdmin, policy =>
+        policy.RequireRole(AppRoles.Admin, AppRoles.Staff));
+
+    options.AddPolicy(AuthorizationPolicies.PatientOnly, policy =>
+        policy.RequireAssertion(context =>
+            context.User.Identity?.IsAuthenticated == true &&
+            (context.User.IsInRole(AppRoles.Patient) ||
+             (!context.User.IsInRole(AppRoles.Admin) && !context.User.IsInRole(AppRoles.Staff)))));
+});
 QuestPDF.Settings.License = LicenseType.Community;
 
 builder.Services.AddCors(options =>
@@ -128,6 +182,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<OracleExceptionFilter>();
+    options.Filters.Add<AuditLogActionFilter>();
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -190,7 +245,7 @@ else
             if (missing.Count > 0)
             {
                 app.Logger.LogWarning(
-                    "Missing mobile portal tables: {Tables}. Run Docs/MOBILE_PORTAL_TABLES.sql (or Docs/MOBILE_MESSAGING_TABLES.sql for messaging only).",
+                    "Missing mobile portal tables: {Tables}. Run Docs/MOBILE_PORTAL_TABLES.sql and Docs/MOBILE_ENTERPRISE_TABLES.sql on HMIS schema.",
                     string.Join(", ", missing));
             }
         }

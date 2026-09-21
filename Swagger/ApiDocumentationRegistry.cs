@@ -954,6 +954,258 @@ namespace HospitalMobileAPPApi.Swagger
                         ["reminderId"] = "Reminder ID to delete.",
                         ["mrNo"] = "Patient MR number.",
                     }),
+
+                ["Health_GetHealth"] = new(
+                    summary: "Liveness and readiness probe",
+                    description: "Returns Healthy when Oracle is connected and all required mobile portal tables exist. Returns 503 when degraded."),
+
+                ["Payment_Initiate"] = new(
+                    summary: "Create online payment intent",
+                    description: "Creates a payment record and returns a checkout URL. Use after selecting a pending invoice from Billing.",
+                    requestExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "billId": "12345",
+                          "invoiceNo": "INV-2026-001",
+                          "amount": 2500.00,
+                          "returnUrl": "btihapp://payment/return"
+                        }
+                        """),
+
+                ["Payment_Confirm"] = new(
+                    summary: "Confirm payment (mock or gateway return)",
+                    description: "Marks payment as PAID. In development, mock confirmation is enabled via PaymentGateway:AllowMockConfirm.",
+                    requestExample: """
+                        {
+                          "paymentId": 1,
+                          "gatewayRef": "PAY-20260319120000-1234"
+                        }
+                        """),
+
+                ["AdminAuth_Login"] = new(
+                    summary: "Admin portal login",
+                    description: "Returns JWT with Admin or Staff role for admin panel APIs.",
+                    requestExample: """
+                        {
+                          "username": "admin",
+                          "password": "YourSecurePassword"
+                        }
+                        """),
+
+                ["AdminAuth_Bootstrap"] = new(
+                    summary: "Initialize admin password (one-time)",
+                    description: "Requires Admin:BootstrapSecret. Run once after MOBILE_ENTERPRISE_TABLES.sql when admin row has PLACEHOLDER hash.",
+                    requestExample: """
+                        {
+                          "bootstrapSecret": "BTIH-DEV-BOOTSTRAP-2026",
+                          "username": "admin",
+                          "password": "Admin@BTIH2026!",
+                          "displayName": "BTIH Portal Admin",
+                          "role": "Admin"
+                        }
+                        """),
+
+                ["Telemedicine_CreateSession"] = new(
+                    summary: "Schedule telemedicine session",
+                    description: "Creates a room and returns joinUrl deep link for the patient app.",
+                    requestExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "appointmentId": "APT-1001",
+                          "doctorId": 42,
+                          "doctorName": "Dr. Example",
+                          "scheduledAt": "2026-03-20T10:00:00"
+                        }
+                        """),
+
+                ["Content_GetContent"] = new(
+                    summary: "Localized app content bundle",
+                    description: "Returns all static strings for a language code (`en` or `ur`). Public endpoint.",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["langCode"] = "Language code: en or ur.",
+                    }),
+
+                ["Support_GetFaq"] = new(
+                    summary: "FAQ list",
+                    description: "Returns FAQ in English or Urdu based on lang query parameter.",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["lang"] = "Language: en (default) or ur.",
+                        ["category"] = "Optional filter: Appointments, Reports, Billing, etc.",
+                    }),
+
+                ["Support_CreateTicket"] = new(
+                    summary: "Submit support ticket",
+                    description: "Guest or authenticated patients can submit help requests.",
+                    requestExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "contactName": "Ali Khan",
+                          "contactPhone": "03001234567",
+                          "contactEmail": "ali@example.com",
+                          "category": "App",
+                          "subject": "Cannot view lab report",
+                          "description": "Report from yesterday is missing in the app."
+                        }
+                        """),
+
+                ["AdminAnalytics_GetUsers"] = new(
+                    summary: "User statistics for admin dashboard",
+                    description: """
+                        Returns total, active, new, and returning portal users for the selected date range.
+                        Defaults to the last 30 days when `from` / `to` are omitted.
+                        """,
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["from"] = "Optional start date (inclusive).",
+                        ["to"] = "Optional end date (inclusive).",
+                    },
+                    responseExample: """
+                        {
+                          "success": true,
+                          "data": {
+                            "period": { "from": "2026-08-20T00:00:00", "to": "2026-09-19T23:59:59" },
+                            "totalUsers": 1250,
+                            "activeUsers": 420,
+                            "newUsers": 38,
+                            "returningUsers": 382,
+                            "mobileRegistrations": 95,
+                            "hmisPortalUsers": 1180
+                          }
+                        }
+                        """),
+
+                ["AdminAnalytics_GetVisits"] = new(
+                    summary: "Visit analytics for admin dashboard",
+                    description: """
+                        Returns daily, weekly, and monthly visit buckets derived from recent activity and app sessions.
+                        """,
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["from"] = "Optional start date (inclusive).",
+                        ["to"] = "Optional end date (inclusive).",
+                    },
+                    responseExample: """
+                        {
+                          "success": true,
+                          "data": {
+                            "period": { "from": "2026-08-20T00:00:00", "to": "2026-09-19T23:59:59" },
+                            "totalVisits": 5400,
+                            "uniqueUsers": 410,
+                            "daily": [
+                              { "label": "2026-09-01", "periodStart": "2026-09-01T00:00:00", "visits": 120, "uniqueUsers": 95 }
+                            ],
+                            "weekly": [],
+                            "monthly": []
+                          }
+                        }
+                        """),
+
+                ["AdminAnalytics_GetEngagement"] = new(
+                    summary: "Engagement metrics for admin dashboard",
+                    description: """
+                        Returns session counts, average/median duration, total time spent, and top users.
+                        Requires `MOBILE_APP_SESSION` table and mobile app session start/end calls.
+                        """,
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["from"] = "Optional start date (inclusive).",
+                        ["to"] = "Optional end date (inclusive).",
+                    },
+                    responseExample: """
+                        {
+                          "success": true,
+                          "data": {
+                            "period": { "from": "2026-08-20T00:00:00", "to": "2026-09-19T23:59:59" },
+                            "totalSessions": 820,
+                            "completedSessions": 760,
+                            "avgSessionDurationSeconds": 245,
+                            "medianSessionDurationSeconds": 180,
+                            "totalTimeSpentSeconds": 186200,
+                            "sessionTrackingAvailable": true,
+                            "topUsersByTime": [
+                              { "mrNo": "010-002-152", "sessionCount": 12, "totalSeconds": 3600 }
+                            ]
+                          }
+                        }
+                        """),
+
+                ["Analytics_StartSession"] = new(
+                    summary: "Record mobile app session start",
+                    description: "Patient app should call on foreground. Requires patient JWT.",
+                    requestExample: """
+                        {
+                          "sessionGuid": "optional-client-guid",
+                          "platform": "android",
+                          "appVersion": "2.1.0"
+                        }
+                        """),
+
+                ["Analytics_EndSession"] = new(
+                    summary: "Record mobile app session end",
+                    description: "Patient app should call on background/close. Requires patient JWT.",
+                    requestExample: """
+                        {
+                          "sessionGuid": "guid-from-session-start",
+                          "durationSeconds": 240
+                        }
+                        """),
+
+                ["Admin_GetThreadMessages"] = new(
+                    summary: "Admin read full message thread",
+                    description: "Returns paginated conversation history for staff inbox, including attachments.",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["threadId"] = "Message thread ID.",
+                        ["pageNumber"] = "Page number (default 1).",
+                        ["pageSize"] = "Page size (default 50, max 100).",
+                    }),
+
+                ["Admin_GetUsers"] = new(
+                    summary: "List portal users",
+                    description: "Paginated list of mobile registrations and HMIS portal users with optional search.",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["search"] = "Optional MR, name, or phone search.",
+                        ["page"] = "Page number (default 1).",
+                        ["pageSize"] = "Page size (default 20, max 100).",
+                    }),
+
+                ["Admin_GetAppointments"] = new(
+                    summary: "List all appointments",
+                    description: "Paginated appointment list from the web appointment database with optional filters.",
+                    parameterDescriptions: new Dictionary<string, string>
+                    {
+                        ["status"] = "Optional status filter (e.g. Pending, Confirmed).",
+                        ["from"] = "Optional created-from date.",
+                        ["to"] = "Optional created-to date.",
+                        ["search"] = "Optional search across ID, name, MR, phone, purpose.",
+                        ["page"] = "Page number (default 1).",
+                        ["pageSize"] = "Page size (default 20, max 100).",
+                    }),
+
+                ["Admin_ApproveAppointment"] = new(
+                    summary: "Approve appointment",
+                    description: "Sets appointment status to Confirmed.",
+                    requestExample: """{ "notes": "Approved by reception" }"""),
+
+                ["Admin_RejectAppointment"] = new(
+                    summary: "Reject appointment",
+                    description: "Sets appointment status to Rejected.",
+                    requestExample: """{ "notes": "Doctor unavailable" }"""),
+
+                ["AdminReports_GetRegistrations"] = new(
+                    summary: "Registration report",
+                    description: "Daily mobile registration counts for the selected date range."),
+
+                ["AdminReports_GetAppointments"] = new(
+                    summary: "Appointment report",
+                    description: "Appointment totals, status breakdown, and daily counts."),
+
+                ["AdminReports_ExportEngagement"] = new(
+                    summary: "Export engagement CSV",
+                    description: "Downloads session-level engagement data as CSV."),
             };
 
         public static IReadOnlyDictionary<string, string> TagDescriptions { get; } =
@@ -968,6 +1220,13 @@ namespace HospitalMobileAPPApi.Swagger
                 ["Messaging"] = "Secure patient-to-hospital messaging with file attachments. Requires JWT.",
                 ["Medications"] = "Current medications from HMIS prescriptions and refill requests. Requires JWT.",
                 ["MedicationReminders"] = "Medication reminder CRUD and server-side push triggers. Requires JWT.",
+                ["Health"] = "Monitoring probes and schema verification. Public.",
+                ["Payments"] = "Online bill payment intents, confirmation, and history. Requires patient JWT.",
+                ["Admin"] = "Staff/admin portal login, messaging replies, refill/ticket management, audit log, analytics.",
+                ["Analytics"] = "Mobile app session tracking for engagement metrics. Requires patient JWT.",
+                ["Telemedicine"] = "Video consultation session scheduling and join links. Requires patient JWT.",
+                ["Content"] = "Multi-language static content (English/Urdu). Public.",
+                ["Support"] = "FAQ, contact info, and support tickets.",
             };
     }
 }

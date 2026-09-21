@@ -215,7 +215,7 @@ namespace HospitalMobileAPPApi.Controllers
                 }
             }
 
-            var tokenResult = _jwtService.GenerateToken(challenge.MrNo, challenge.ContactNo);
+            var tokenResult = _jwtService.GenerateToken(challenge.MrNo, challenge.ContactNo, AppRoles.Patient);
             return Ok(new
             {
                 success = true,
@@ -485,7 +485,7 @@ namespace HospitalMobileAPPApi.Controllers
                 });
             }
 
-            var tokenResult = _jwtService.GenerateToken(result.MrNo, phoneNumber);
+            var tokenResult = _jwtService.GenerateToken(result.MrNo, phoneNumber, AppRoles.Patient);
 
             return Ok(new
             {
@@ -623,7 +623,7 @@ namespace HospitalMobileAPPApi.Controllers
             string? firstName,
             string? deviceTrustToken = null)
         {
-            var tokenResult = _jwtService.GenerateToken(mrNo, contactNo);
+            var tokenResult = _jwtService.GenerateToken(mrNo, contactNo, AppRoles.Patient);
             return new
             {
                 success = true,

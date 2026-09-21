@@ -72,13 +72,63 @@ namespace HospitalMobileAPPApi.Controllers
             });
         }
 
+        /// <summary>Liveness + readiness probe for monitoring (DB + schema).</summary>
+        [HttpGet]
+        public async Task<IActionResult> GetHealth()
+        {
+            IReadOnlyList<string> missing;
+            IReadOnlyList<ConnectedDatabaseInfo> databases;
+
+            try
+            {
+                missing = await _schemaService.GetMissingTablesAsync();
+                databases = await _schemaService.GetConnectedDatabasesAsync();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(503, new
+                {
+                    status = "Unhealthy",
+                    checkedAt = DateTimeOffset.Now,
+                    environment = _environment.EnvironmentName,
+                    error = ex.Message,
+                });
+            }
+
+            var allDbOk = databases.All(db => db.Configured && db.Connected);
+            var schemaOk = missing.Count == 0;
+            var healthy = allDbOk && schemaOk;
+
+            var payload = new
+            {
+                status = healthy ? "Healthy" : "Degraded",
+                checkedAt = DateTimeOffset.Now,
+                environment = _environment.EnvironmentName,
+                database = new
+                {
+                    connected = allDbOk,
+                    details = databases,
+                },
+                schema = new
+                {
+                    ok = schemaOk,
+                    missingTableCount = missing.Count,
+                    missingTables = missing,
+                },
+            };
+
+            return healthy ? Ok(payload) : StatusCode(503, payload);
+        }
+
         private static object SchemaScripts => new
         {
             full = "Docs/MOBILE_PORTAL_TABLES.sql",
             messagingOnly = "Docs/MOBILE_MESSAGING_TABLES.sql",
+            enterprise = "Docs/MOBILE_ENTERPRISE_TABLES.sql",
             pushTokens = "Docs/PATIENT_DEVICE_TOKEN.sql",
             recentActivity = "Docs/PATIENT_RECENT_ACTIVITY.sql",
             profilePhoto = "Docs/PATIENT_PROFILE_PHOTO.sql",
+            analytics = "Docs/MOBILE_ANALYTICS_TABLES.sql",
         };
 
         private static string BuildMessage(

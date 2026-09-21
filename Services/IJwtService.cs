@@ -7,6 +7,7 @@ namespace HospitalMobileAPPApi.Services
         JwtTokenResult GenerateToken(
             string userId,
             string username,
-            string? role = null);
+            string? role = null,
+            int? expiryMinutes = null);
     }
 }

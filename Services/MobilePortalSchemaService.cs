@@ -54,6 +54,15 @@ namespace HospitalMobileAPPApi.Services
             "PATIENT_APP_PIN",
             "GUEST_PATIENT",
             "PATIENT_PROFILE_PHOTO",
+            "MOBILE_PAYMENT_INTENT",
+            "MOBILE_PAYMENT_TRANSACTION",
+            "MOBILE_ADMIN_USER",
+            "MOBILE_AUDIT_LOG",
+            "TELEMED_SESSION",
+            "MOBILE_CONTENT_LOCALIZED",
+            "MOBILE_FAQ",
+            "MOBILE_SUPPORT_TICKET",
+            "MOBILE_APP_SESSION",
         };
 
         public IReadOnlyList<string> RequiredTables => RequiredTablesList;

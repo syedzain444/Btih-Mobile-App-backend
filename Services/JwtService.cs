@@ -18,18 +18,19 @@ namespace HospitalMobileAPPApi.Services
         public JwtTokenResult GenerateToken(
             string userId,
             string username,
-            string? role = null)
+            string? role = null,
+            int? expiryMinutes = null)
         {
             var jwtSettings = _configuration.GetSection("JwtSettings");
 
             var secretKey = jwtSettings["SecretKey"];
             var issuer = jwtSettings["Issuer"];
             var audience = jwtSettings["Audience"];
-            var expiryMinutes = jwtSettings.GetValue<int>("ExpiryMinutes", 95);
+            var tokenExpiryMinutes = expiryMinutes ?? jwtSettings.GetValue<int>("ExpiryMinutes", 95);
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey!));
             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-            var expiresAt = DateTime.UtcNow.AddMinutes(expiryMinutes);
+            var expiresAt = DateTime.UtcNow.AddMinutes(tokenExpiryMinutes);
 
             var claims = new List<Claim>
             {
@@ -56,7 +57,7 @@ namespace HospitalMobileAPPApi.Services
             {
                 Token = new JwtSecurityTokenHandler().WriteToken(token),
                 ExpiresAt = expiresAt,
-                ExpiresInSeconds = expiryMinutes * 60,
+                ExpiresInSeconds = tokenExpiryMinutes * 60,
             };
         }
     }
