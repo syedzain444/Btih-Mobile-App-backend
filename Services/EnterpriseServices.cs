@@ -2,6 +2,7 @@ using HospitalMobileAPPApi.Configuration;
 using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Repository;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
 using System.Text;
@@ -194,21 +195,30 @@ namespace HospitalMobileAPPApi.Services
         private readonly IAdminRepository _adminRepository;
         private readonly IAdminPortalRepository _adminPortalRepository;
         private readonly IMessagingRepository _messagingRepository;
+        private readonly IPushNotificationService _pushNotificationService;
+        private readonly ISmsService _smsService;
         private readonly IJwtService _jwtService;
         private readonly AdminSettings _adminSettings;
+        private readonly ILogger<AdminService> _logger;
 
         public AdminService(
             IAdminRepository adminRepository,
             IAdminPortalRepository adminPortalRepository,
             IMessagingRepository messagingRepository,
+            IPushNotificationService pushNotificationService,
+            ISmsService smsService,
             IJwtService jwtService,
-            IOptions<AdminSettings> adminSettings)
+            IOptions<AdminSettings> adminSettings,
+            ILogger<AdminService> logger)
         {
             _adminRepository = adminRepository;
             _adminPortalRepository = adminPortalRepository;
             _messagingRepository = messagingRepository;
+            _pushNotificationService = pushNotificationService;
+            _smsService = smsService;
             _jwtService = jwtService;
             _adminSettings = adminSettings.Value;
+            _logger = logger;
         }
 
         public async Task<(bool Success, string Message, JwtTokenResult? Token, AdminUserDto? User)> LoginAsync(AdminLoginRequest request)
@@ -350,7 +360,62 @@ namespace HospitalMobileAPPApi.Services
         public async Task<PatientAppointment?> ApproveAppointmentAsync(string appointmentId, string? notes)
         {
             var updated = await _adminPortalRepository.UpdateAppointmentStatusAsync(appointmentId, "Confirmed", notes);
-            return updated ? await _adminPortalRepository.GetAppointmentAsync(appointmentId) : null;
+            if (!updated)
+            {
+                return null;
+            }
+
+            var appointment = await _adminPortalRepository.GetAppointmentAsync(appointmentId);
+            if (appointment == null)
+            {
+                return null;
+            }
+
+            await SendAppointmentApprovedSmsAsync(appointment);
+            return appointment;
+        }
+
+        private async Task SendAppointmentApprovedSmsAsync(PatientAppointment appointment)
+        {
+            if (string.IsNullOrWhiteSpace(appointment.PhoneNo))
+            {
+                _logger.LogWarning(
+                    "Appointment {AppointmentId} approved but no phone number on record for SMS.",
+                    appointment.AppointmentId);
+                return;
+            }
+
+            var message = BuildAppointmentApprovedSms(appointment);
+            var sent = await _smsService.SendAsync(appointment.PhoneNo, message);
+            if (!sent)
+            {
+                _logger.LogWarning(
+                    "Failed to send appointment approval SMS for {AppointmentId} to {PhoneNo}",
+                    appointment.AppointmentId,
+                    appointment.PhoneNo);
+            }
+        }
+
+        private static string BuildAppointmentApprovedSms(PatientAppointment appointment)
+        {
+            var parts = new List<string> { "BTIH: Your appointment has been confirmed." };
+
+            if (!string.IsNullOrWhiteSpace(appointment.DoctorName))
+            {
+                parts.Add($"Doctor: {appointment.DoctorName.Trim()}.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(appointment.AppointmentTime))
+            {
+                parts.Add($"Time: {appointment.AppointmentTime.Trim()}.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(appointment.MRNo))
+            {
+                parts.Add($"MR No: {appointment.MRNo.Trim()}.");
+            }
+
+            return string.Join(" ", parts);
         }
 
         public async Task<PatientAppointment?> RejectAppointmentAsync(string appointmentId, string? notes)
@@ -361,6 +426,12 @@ namespace HospitalMobileAPPApi.Services
 
         public async Task<MessageItem?> ReplyToThreadAsync(AdminReplyMessageRequest request)
         {
+            var thread = await _messagingRepository.GetThreadAsync(request.ThreadId);
+            if (thread == null)
+            {
+                return null;
+            }
+
             var messageId = await _messagingRepository.AddMessageAsync(
                 request.ThreadId,
                 "STAFF",
@@ -369,7 +440,7 @@ namespace HospitalMobileAPPApi.Services
 
             await _messagingRepository.TouchThreadAsync(request.ThreadId);
 
-            return new MessageItem
+            var message = new MessageItem
             {
                 MessageId = messageId,
                 ThreadId = request.ThreadId,
@@ -379,6 +450,32 @@ namespace HospitalMobileAPPApi.Services
                 CreatedAt = DateTime.Now,
                 Attachments = new List<MessageAttachmentItem>(),
             };
+
+            try
+            {
+                var preview = request.Body.Trim();
+                if (preview.Length > 120)
+                {
+                    preview = preview[..120] + "...";
+                }
+
+                await _pushNotificationService.SendToPatientAsync(
+                    thread.MrNo,
+                    "New message from hospital",
+                    preview,
+                    PushNotificationTypes.MessageReceived,
+                    new Dictionary<string, string>
+                    {
+                        ["threadId"] = request.ThreadId.ToString(),
+                        ["subject"] = thread.Subject ?? string.Empty,
+                    });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send message push for thread {ThreadId}", request.ThreadId);
+            }
+
+            return message;
         }
 
         public Task<List<RefillRequestItem>> GetPendingRefillsAsync() =>

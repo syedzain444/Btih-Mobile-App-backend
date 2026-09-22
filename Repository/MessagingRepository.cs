@@ -206,6 +206,45 @@ namespace HospitalMobileAPPApi.Repository
             return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
         }
 
+        public async Task<MessageThreadSummary?> GetThreadAsync(int threadId)
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT
+                    THREAD_ID,
+                    MR_NO,
+                    SUBJECT,
+                    CATEGORY,
+                    STATUS,
+                    CREATED_AT,
+                    UPDATED_AT
+                FROM PATIENT_MSG_THREAD
+                WHERE THREAD_ID = :thread_id", conn);
+
+            cmd.BindByName = true;
+            cmd.Parameters.Add(new OracleParameter("thread_id", threadId));
+
+            await conn.OpenAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+            {
+                return null;
+            }
+
+            return new MessageThreadSummary
+            {
+                ThreadId = Convert.ToInt32(reader["THREAD_ID"]),
+                MrNo = reader["MR_NO"]?.ToString() ?? string.Empty,
+                Subject = reader["SUBJECT"]?.ToString() ?? string.Empty,
+                Category = reader["CATEGORY"]?.ToString(),
+                Status = reader["STATUS"]?.ToString() ?? "OPEN",
+                CreatedAt = Convert.ToDateTime(reader["CREATED_AT"]),
+                UpdatedAt = Convert.ToDateTime(reader["UPDATED_AT"]),
+            };
+        }
+
         public async Task<List<MessageItem>> GetMessagesAsync(int threadId, int skip, int take)
         {
             var messages = new List<MessageItem>();

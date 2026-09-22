@@ -9,6 +9,7 @@ namespace HospitalMobileAPPApi.Repository
         Task<List<MessageThreadSummary>> GetAdminInboxAsync();
         Task<bool> ThreadBelongsToPatientAsync(int threadId, string mrNo);
         Task<bool> ThreadExistsAsync(int threadId);
+        Task<MessageThreadSummary?> GetThreadAsync(int threadId);
         Task<List<MessageItem>> GetMessagesAsync(int threadId, int skip, int take);
         Task<int> GetMessageCountAsync(int threadId);
         Task<int> AddMessageAsync(int threadId, string senderType, string? senderName, string? body);
