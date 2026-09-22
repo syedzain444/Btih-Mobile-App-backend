@@ -207,8 +207,12 @@ namespace HospitalMobileAPPApi.Controllers
 
             return Ok(new
             {
-                success = true,
-                message = "Notification processed",
+                success = result.Persisted || result.Sent > 0,
+                persisted = result.Persisted,
+                notificationId = result.NotificationId,
+                message = result.Persisted
+                    ? "Notification saved to inbox and push processed"
+                    : "Push processed but inbox save failed — check PATIENT_NOTIFICATION table",
                 notificationType = type,
                 category = NotificationHistoryService.ResolveCategory(type, data),
                 result,

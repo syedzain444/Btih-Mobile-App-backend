@@ -36,9 +36,13 @@ ORDER BY column_id;
 SELECT COUNT(*) AS total_rows FROM PATIENT_NOTIFICATION;
 
 -- =============================================================================
--- STEP 5: Latest notifications for a patient (change MR number)
+-- STEP 5: After a test push, confirm the row was saved
 -- =============================================================================
-SELECT notification_id, mr_no, notification_type, title, is_read, created_at
-FROM patient_notification
-WHERE mr_no = '010-002-152'
-ORDER BY created_at DESC;
+-- Use Swagger: POST /api/PushNotification/send
+-- Then (Oracle 11g-safe):
+SELECT * FROM (
+  SELECT notification_id, mr_no, notification_type, title, is_read, created_at
+  FROM patient_notification
+  ORDER BY created_at DESC
+) WHERE ROWNUM <= 20;
+

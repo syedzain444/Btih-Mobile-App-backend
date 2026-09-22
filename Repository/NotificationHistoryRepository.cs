@@ -18,8 +18,21 @@ namespace HospitalMobileAPPApi.Repository
             var connStr = _configuration.GetConnectionString("HMISConnection");
 
             await using var conn = new OracleConnection(connStr);
+            await conn.OpenAsync();
+
+            // Explicit sequence nextval — works on Oracle 11g+ and does not depend on
+            // RETURNING + trigger interactions (those often fail silently upstream).
+            int notificationId;
+            await using (var seqCmd = new OracleCommand(
+                "SELECT PATIENT_NOTIFICATION_SEQ.NEXTVAL FROM DUAL", conn))
+            {
+                var seqValue = await seqCmd.ExecuteScalarAsync();
+                notificationId = Convert.ToInt32(seqValue.ToString());
+            }
+
             await using var cmd = new OracleCommand(@"
                 INSERT INTO PATIENT_NOTIFICATION (
+                    NOTIFICATION_ID,
                     MR_NO,
                     NOTIFICATION_TYPE,
                     CATEGORY,
@@ -30,6 +43,7 @@ namespace HospitalMobileAPPApi.Repository
                     IS_READ,
                     CREATED_AT
                 ) VALUES (
+                    :notification_id,
                     :mr_no,
                     :notification_type,
                     :category,
@@ -39,31 +53,24 @@ namespace HospitalMobileAPPApi.Repository
                     :payload_json,
                     'N',
                     SYSDATE
-                )
-                RETURNING NOTIFICATION_ID INTO :notification_id", conn);
+                )", conn);
 
             cmd.BindByName = true;
+            cmd.Parameters.Add(new OracleParameter("notification_id", notificationId));
             cmd.Parameters.Add(new OracleParameter("mr_no", record.MrNo));
-            cmd.Parameters.Add(new OracleParameter("notification_type", record.NotificationType));
-            cmd.Parameters.Add(new OracleParameter("category", record.Category));
-            cmd.Parameters.Add(new OracleParameter("priority", record.Priority));
-            cmd.Parameters.Add(new OracleParameter("title", record.Title));
-            cmd.Parameters.Add(new OracleParameter("body", record.Body));
+            cmd.Parameters.Add(new OracleParameter("notification_type", Truncate(record.NotificationType, 50)));
+            cmd.Parameters.Add(new OracleParameter("category", Truncate(record.Category, 30)));
+            cmd.Parameters.Add(new OracleParameter("priority", Truncate(record.Priority, 10)));
+            cmd.Parameters.Add(new OracleParameter("title", Truncate(record.Title, 200)));
+            cmd.Parameters.Add(new OracleParameter("body", Truncate(record.Body, 1000)));
             cmd.Parameters.Add(new OracleParameter(
                 "payload_json",
                 string.IsNullOrWhiteSpace(record.PayloadJson)
                     ? (object)DBNull.Value
                     : record.PayloadJson));
 
-            var idOut = new OracleParameter("notification_id", OracleDbType.Int32)
-            {
-                Direction = System.Data.ParameterDirection.Output,
-            };
-            cmd.Parameters.Add(idOut);
-
-            await conn.OpenAsync();
             await cmd.ExecuteNonQueryAsync();
-            return Convert.ToInt32(idOut.Value.ToString());
+            return notificationId;
         }
 
         public async Task<NotificationInboxResult> GetInboxAsync(
@@ -106,23 +113,32 @@ namespace HospitalMobileAPPApi.Repository
             result.UnreadCount = await GetUnreadCountAsync(mrNo);
 
             var offset = (pageNumber - 1) * pageSize;
+            var maxRow = offset + pageSize;
 
+            // ROWNUM pagination — Oracle 11g compatible (no OFFSET/FETCH).
             await using var cmd = new OracleCommand(@"
-                SELECT NOTIFICATION_ID, MR_NO, NOTIFICATION_TYPE, CATEGORY, PRIORITY,
-                       TITLE, BODY, PAYLOAD_JSON, IS_READ, CREATED_AT, READ_AT
-                FROM PATIENT_NOTIFICATION
-                WHERE MR_NO = :mr_no
-                  AND (:category IS NULL OR CATEGORY = :category)
-                ORDER BY CREATED_AT DESC
-                OFFSET :offset ROWS FETCH NEXT :page_size ROWS ONLY", conn);
+                SELECT *
+                FROM (
+                    SELECT inner_q.*, ROWNUM AS rn
+                    FROM (
+                        SELECT NOTIFICATION_ID, MR_NO, NOTIFICATION_TYPE, CATEGORY, PRIORITY,
+                               TITLE, BODY, PAYLOAD_JSON, IS_READ, CREATED_AT, READ_AT
+                        FROM PATIENT_NOTIFICATION
+                        WHERE MR_NO = :mr_no
+                          AND (:category IS NULL OR CATEGORY = :category)
+                        ORDER BY CREATED_AT DESC
+                    ) inner_q
+                    WHERE ROWNUM <= :max_row
+                )
+                WHERE rn > :offset_row", conn);
 
             cmd.BindByName = true;
             cmd.Parameters.Add(new OracleParameter("mr_no", mrNo));
             cmd.Parameters.Add(new OracleParameter(
                 "category",
                 normalizedCategory ?? (object)DBNull.Value));
-            cmd.Parameters.Add(new OracleParameter("offset", offset));
-            cmd.Parameters.Add(new OracleParameter("page_size", pageSize));
+            cmd.Parameters.Add(new OracleParameter("max_row", maxRow));
+            cmd.Parameters.Add(new OracleParameter("offset_row", offset));
 
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -231,9 +247,22 @@ namespace HospitalMobileAPPApi.Repository
                 "lab" => "lab",
                 "records" => "records",
                 "billing" => "billing",
+                "messaging" => "messaging",
+                "security" => "security",
                 "general" => "general",
                 _ => null,
             };
+        }
+
+        private static string Truncate(string? value, int maxLength)
+        {
+            var text = (value ?? string.Empty).Trim();
+            if (text.Length <= maxLength)
+            {
+                return text;
+            }
+
+            return text[..maxLength];
         }
 
         public static string SerializePayload(Dictionary<string, string>? payload)

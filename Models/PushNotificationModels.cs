@@ -69,6 +69,9 @@ namespace HospitalMobileAPPApi.Models
         public int Failed { get; set; }
         public int TotalTokens { get; set; }
         public int? NotificationId { get; set; }
+        /// <summary>True when the inbox row was written to PATIENT_NOTIFICATION.</summary>
+        public bool Persisted { get; set; }
+        public string? PersistError { get; set; }
         public List<string> Errors { get; set; } = new();
     }
 

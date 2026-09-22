@@ -114,6 +114,8 @@ namespace HospitalMobileAPPApi.Services
             data["type"] = notificationType;
             data["mrNo"] = mrNo;
 
+            // Always persist to PATIENT_NOTIFICATION first so the bell inbox
+            // can show history even if FCM delivery fails or the app is offline.
             try
             {
                 var category = NotificationHistoryService.ResolveCategory(notificationType, data);
@@ -130,10 +132,19 @@ namespace HospitalMobileAPPApi.Services
                     category,
                     priority);
                 result.NotificationId = notificationId;
+                result.Persisted = notificationId > 0;
+                data["notificationId"] = notificationId.ToString();
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to persist notification history for MR No {MrNo}", mrNo);
+                result.Persisted = false;
+                result.PersistError = ex.Message;
+                result.Errors.Add($"DB persist failed: {ex.Message}");
+                _logger.LogError(
+                    ex,
+                    "Failed to persist notification history for MR No {MrNo}. " +
+                    "Ensure PATIENT_NOTIFICATION (+ PATIENT_NOTIFICATION_SEQ) exists. FCM will still be attempted.",
+                    mrNo);
             }
 
             var tokens = await _repository.GetActiveTokensAsync(mrNo);
