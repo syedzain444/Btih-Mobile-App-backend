@@ -46,7 +46,7 @@ namespace HospitalMobileAPPApi.Repository
                 {
                     return null;
                 }
-
+                
                 profile = new PatientDetails
                 {
                     MrNo = reader["MR_NO"]?.ToString(),

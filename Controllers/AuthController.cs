@@ -1,6 +1,7 @@
 using HospitalMobileAPPApi.Configuration;
 using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Models;
+using HospitalMobileAPPApi.Repository;
 using HospitalMobileAPPApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -387,7 +388,7 @@ namespace HospitalMobileAPPApi.Controllers
                 return BadRequest(new { success = false, message = "Phone number is required" });
             }
 
-            phoneNumber = phoneNumber.Trim();
+            phoneNumber = GuestRepository.NormalizeMobile(phoneNumber);
 
             try
             {
@@ -460,7 +461,7 @@ namespace HospitalMobileAPPApi.Controllers
                 return BadRequest(new { success = false, message = "Phone number and OTP are required" });
             }
 
-            var phoneNumber = request.PhoneNumber.Trim();
+            var phoneNumber = GuestRepository.NormalizeMobile(request.PhoneNumber);
             var cacheKey = $"{RegistrationOtpCachePrefix}{phoneNumber}";
 
             if (!_cache.TryGetValue(cacheKey, out string? storedOtp) || storedOtp != request.Otp.Trim())
@@ -474,6 +475,8 @@ namespace HospitalMobileAPPApi.Controllers
 
             _cache.Remove(cacheKey);
 
+            // Keep RegisterAsync using the normalized phone.
+            request.PhoneNumber = phoneNumber;
             var result = await _registrationService.RegisterAsync(request);
 
             if (!result.Success || string.IsNullOrWhiteSpace(result.MrNo))

@@ -53,6 +53,7 @@ namespace HospitalMobileAPPApi.Services
             "PATIENT_TRUSTED_DEVICE",
             "PATIENT_APP_PIN",
             "GUEST_PATIENT",
+            "GUEST_APPOINTMENT",
             "PATIENT_PROFILE_PHOTO",
             "MOBILE_PAYMENT_INTENT",
             "MOBILE_PAYMENT_TRANSACTION",
