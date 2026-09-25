@@ -255,9 +255,7 @@ namespace HospitalMobileAPPApi.Controllers
             return Ok(new
             {
                 message = "Verification successful",
-                mr_no = result.MR_NO,
                 mrNo = result.MR_NO,
-                contactno = result.CONTACT_NO,
                 contactNo = result.CONTACT_NO,
                 hasPortalAccount,
             });
