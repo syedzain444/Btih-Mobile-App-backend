@@ -113,6 +113,12 @@ builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IAdminRepository, AdminRepository>();
 builder.Services.AddScoped<IAdminPortalRepository, AdminPortalRepository>();
+builder.Services.AddHttpClient(nameof(SmsService), client =>
+{
+    var timeoutSeconds = builder.Configuration.GetSection(SmsSettings.SectionName).GetValue<int?>("TimeoutSeconds") ?? 30;
+    client.Timeout = TimeSpan.FromSeconds(Math.Max(1, timeoutSeconds));
+});
+builder.Services.AddScoped<ISmsService, SmsService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IAdminReportService, AdminReportService>();
 builder.Services.AddScoped<IAuditLogRepository, AuditLogRepository>();
