@@ -240,17 +240,13 @@ namespace HospitalMobileAPPApi.Controllers
         [HttpPost("promotions")]
         [RequestSizeLimit(8_000_000)]
         public async Task<IActionResult> CreatePromotion(
-            [FromForm] string title,
-            [FromForm] int sortOrder,
-            [FromForm] int durationSeconds,
-            [FromForm] bool isActive,
-            [FromForm] DateTime? startAt,
-            [FromForm] DateTime? endAt,
+            [FromForm] PromotionMultipartForm form,
             IFormFile? image,
             [FromServices] IPromotionService promotionService,
-            [FromServices] IWebHostEnvironment env)
+            [FromServices] IWebHostEnvironment env,
+            [FromServices] IMobilePortalSchemaService schemaService)
         {
-            if (string.IsNullOrWhiteSpace(title))
+            if (string.IsNullOrWhiteSpace(form.Title))
             {
                 return BadRequest(new { success = false, message = "Title is required" });
             }
@@ -262,16 +258,17 @@ namespace HospitalMobileAPPApi.Controllers
 
             try
             {
+                await schemaService.EnsurePromotionSchemaAsync();
                 var imageUrl = await SavePromotionImageAsync(image, env);
                 var created = await promotionService.CreateAsync(new MobilePromotionRecord
                 {
-                    Title = title.Trim(),
+                    Title = form.Title.Trim(),
                     ImageUrl = imageUrl,
-                    SortOrder = sortOrder,
-                    DurationSeconds = durationSeconds <= 0 ? 5 : durationSeconds,
-                    IsActive = isActive,
-                    StartAt = startAt,
-                    EndAt = endAt,
+                    SortOrder = form.SortOrder,
+                    DurationSeconds = form.DurationSeconds <= 0 ? 5 : form.DurationSeconds,
+                    IsActive = form.ParseIsActive(),
+                    StartAt = form.StartAt,
+                    EndAt = form.EndAt,
                 });
 
                 return Ok(new
@@ -289,6 +286,15 @@ namespace HospitalMobileAPPApi.Controllers
             {
                 return StatusCode(statusCode, new { success = false, message = dbMessage });
             }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    success = false,
+                    message = "Could not save promotion image or database record. Check API logs and uploads folder permissions.",
+                    detail = ex.Message,
+                });
+            }
         }
 
         /// <summary>Update promotion metadata; optional new image.</summary>
@@ -296,23 +302,20 @@ namespace HospitalMobileAPPApi.Controllers
         [RequestSizeLimit(8_000_000)]
         public async Task<IActionResult> UpdatePromotion(
             int id,
-            [FromForm] string title,
-            [FromForm] int sortOrder,
-            [FromForm] int durationSeconds,
-            [FromForm] bool isActive,
-            [FromForm] DateTime? startAt,
-            [FromForm] DateTime? endAt,
+            [FromForm] PromotionMultipartForm form,
             IFormFile? image,
             [FromServices] IPromotionService promotionService,
-            [FromServices] IWebHostEnvironment env)
+            [FromServices] IWebHostEnvironment env,
+            [FromServices] IMobilePortalSchemaService schemaService)
         {
-            if (string.IsNullOrWhiteSpace(title))
+            if (string.IsNullOrWhiteSpace(form.Title))
             {
                 return BadRequest(new { success = false, message = "Title is required" });
             }
 
             try
             {
+                await schemaService.EnsurePromotionSchemaAsync();
                 var existing = await promotionService.GetByIdAsync(id);
                 if (existing == null)
                 {
@@ -324,12 +327,12 @@ namespace HospitalMobileAPPApi.Controllers
                     existing.ImageUrl = await SavePromotionImageAsync(image, env);
                 }
 
-                existing.Title = title.Trim();
-                existing.SortOrder = sortOrder;
-                existing.DurationSeconds = durationSeconds <= 0 ? 5 : durationSeconds;
-                existing.IsActive = isActive;
-                existing.StartAt = startAt;
-                existing.EndAt = endAt;
+                existing.Title = form.Title.Trim();
+                existing.SortOrder = form.SortOrder;
+                existing.DurationSeconds = form.DurationSeconds <= 0 ? 5 : form.DurationSeconds;
+                existing.IsActive = form.ParseIsActive();
+                existing.StartAt = form.StartAt;
+                existing.EndAt = form.EndAt;
 
                 var updated = await promotionService.UpdateAsync(existing);
                 if (!updated)
@@ -352,6 +355,15 @@ namespace HospitalMobileAPPApi.Controllers
             catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
             {
                 return StatusCode(statusCode, new { success = false, message = dbMessage });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    success = false,
+                    message = "Could not update promotion. Check API logs and uploads folder permissions.",
+                    detail = ex.Message,
+                });
             }
         }
 

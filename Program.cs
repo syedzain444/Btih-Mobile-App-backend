@@ -261,6 +261,9 @@ else
         {
             using var scope = app.Services.CreateScope();
             var schemaService = scope.ServiceProvider.GetRequiredService<IMobilePortalSchemaService>();
+            await schemaService.EnsurePromotionSchemaAsync();
+            app.Logger.LogInformation("MOBILE_PROMOTION schema verified.");
+
             var missing = await schemaService.GetMissingTablesAsync();
             if (missing.Count > 0)
             {
@@ -317,6 +320,9 @@ if (enableSwagger)
         options.EnablePersistAuthorization();
     });
 }
+
+var promotionsUploadDir = Path.Combine(app.Environment.WebRootPath, "uploads", "promotions");
+Directory.CreateDirectory(promotionsUploadDir);
 
 app.UseStaticFiles();
 app.UseRouting();

@@ -9,6 +9,7 @@ namespace HospitalMobileAPPApi.Services
         IReadOnlyList<string> RequiredTables { get; }
         Task<IReadOnlyList<string>> GetMissingTablesAsync();
         Task<IReadOnlyList<ConnectedDatabaseInfo>> GetConnectedDatabasesAsync();
+        Task EnsurePromotionSchemaAsync(CancellationToken cancellationToken = default);
     }
 
     public sealed class ConnectedDatabaseInfo
@@ -124,6 +125,112 @@ namespace HospitalMobileAPPApi.Services
             }
 
             return results;
+        }
+
+        /// <summary>
+        /// Creates MOBILE_PROMOTION table/sequence if missing (required for admin panel promotions).
+        /// </summary>
+        public async Task EnsurePromotionSchemaAsync(CancellationToken cancellationToken = default)
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            if (string.IsNullOrWhiteSpace(connStr))
+            {
+                return;
+            }
+
+            await using var conn = new OracleConnection(connStr);
+            await conn.OpenAsync(cancellationToken);
+
+            if (await TableExistsAsync(conn, "MOBILE_PROMOTION", cancellationToken))
+            {
+                return;
+            }
+
+            if (!await SequenceExistsAsync(conn, "MOBILE_PROMOTION_SEQ", cancellationToken))
+            {
+                await ExecuteDdlAsync(conn, @"
+                    CREATE SEQUENCE MOBILE_PROMOTION_SEQ
+                        START WITH 1
+                        INCREMENT BY 1
+                        NOCACHE
+                        NOCYCLE", cancellationToken);
+            }
+
+            await ExecuteDdlAsync(conn, @"
+                CREATE TABLE MOBILE_PROMOTION (
+                    PROMOTION_ID      NUMBER         NOT NULL,
+                    TITLE             VARCHAR2(120)  NOT NULL,
+                    IMAGE_URL         VARCHAR2(500)  NOT NULL,
+                    SORT_ORDER        NUMBER         DEFAULT 0 NOT NULL,
+                    DURATION_SECONDS  NUMBER         DEFAULT 5 NOT NULL,
+                    IS_ACTIVE         CHAR(1)        DEFAULT 'Y' NOT NULL,
+                    START_AT          DATE,
+                    END_AT            DATE,
+                    CREATED_AT        DATE           DEFAULT SYSDATE NOT NULL,
+                    UPDATED_AT        DATE           DEFAULT SYSDATE NOT NULL,
+                    CONSTRAINT PK_MOBILE_PROMOTION PRIMARY KEY (PROMOTION_ID),
+                    CONSTRAINT CHK_MOBILE_PROMO_ACTIVE CHECK (IS_ACTIVE IN ('Y', 'N'))
+                )", cancellationToken);
+
+            await ExecuteDdlAsync(conn, @"
+                CREATE OR REPLACE TRIGGER TRG_MOBILE_PROMOTION_BI
+                BEFORE INSERT ON MOBILE_PROMOTION
+                FOR EACH ROW
+                BEGIN
+                    IF :NEW.PROMOTION_ID IS NULL THEN
+                        SELECT MOBILE_PROMOTION_SEQ.NEXTVAL
+                          INTO :NEW.PROMOTION_ID
+                          FROM DUAL;
+                    END IF;
+                END;", cancellationToken);
+
+            try
+            {
+                await ExecuteDdlAsync(conn, @"
+                    CREATE INDEX IDX_MOBILE_PROMO_ACTIVE
+                        ON MOBILE_PROMOTION (IS_ACTIVE, SORT_ORDER, START_AT, END_AT)", cancellationToken);
+            }
+            catch (OracleException ex) when (ex.Number == 955)
+            {
+                // Index already exists.
+            }
+        }
+
+        private static async Task<bool> TableExistsAsync(
+            OracleConnection conn,
+            string tableName,
+            CancellationToken cancellationToken)
+        {
+            await using var cmd = new OracleCommand(@"
+                SELECT COUNT(*)
+                FROM USER_TABLES
+                WHERE TABLE_NAME = :table_name", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add(new OracleParameter("table_name", tableName));
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken)) > 0;
+        }
+
+        private static async Task<bool> SequenceExistsAsync(
+            OracleConnection conn,
+            string sequenceName,
+            CancellationToken cancellationToken)
+        {
+            await using var cmd = new OracleCommand(@"
+                SELECT COUNT(*)
+                FROM USER_SEQUENCES
+                WHERE SEQUENCE_NAME = :sequence_name", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add(new OracleParameter("sequence_name", sequenceName));
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken)) > 0;
+        }
+
+        private static async Task ExecuteDdlAsync(
+            OracleConnection conn,
+            string sql,
+            CancellationToken cancellationToken)
+        {
+            await using var cmd = new OracleCommand(sql, conn);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
         }
 
         private async Task<ConnectedDatabaseInfo> ProbeConnectionAsync(
