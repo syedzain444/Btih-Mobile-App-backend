@@ -127,6 +127,8 @@ builder.Services.AddScoped<ITelemedicineRepository, TelemedicineRepository>();
 builder.Services.AddScoped<ITelemedicineService, TelemedicineService>();
 builder.Services.AddScoped<IContentRepository, ContentRepository>();
 builder.Services.AddScoped<IContentService, ContentService>();
+builder.Services.AddScoped<IPromotionRepository, PromotionRepository>();
+builder.Services.AddScoped<IPromotionService, PromotionService>();
 builder.Services.AddScoped<ISupportRepository, SupportRepository>();
 builder.Services.AddScoped<ISupportService, SupportService>();
 builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();

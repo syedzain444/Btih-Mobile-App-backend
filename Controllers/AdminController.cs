@@ -220,5 +220,205 @@ namespace HospitalMobileAPPApi.Controllers
             var logs = await _auditLogService.GetRecentAsync(take, mrNo);
             return Ok(new { success = true, data = logs });
         }
+
+        /// <summary>List all launch promotions (admin).</summary>
+        [HttpGet("promotions")]
+        public async Task<IActionResult> GetPromotions([FromServices] IPromotionService promotionService)
+        {
+            try
+            {
+                var items = await promotionService.GetAllAsync();
+                return Ok(new { success = true, data = items.Select(MapPromotionAdmin) });
+            }
+            catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
+            {
+                return StatusCode(statusCode, new { success = false, message = dbMessage });
+            }
+        }
+
+        /// <summary>Create a launch promotion with image upload.</summary>
+        [HttpPost("promotions")]
+        [RequestSizeLimit(8_000_000)]
+        public async Task<IActionResult> CreatePromotion(
+            [FromForm] string title,
+            [FromForm] int sortOrder,
+            [FromForm] int durationSeconds,
+            [FromForm] bool isActive,
+            [FromForm] DateTime? startAt,
+            [FromForm] DateTime? endAt,
+            IFormFile? image,
+            [FromServices] IPromotionService promotionService,
+            [FromServices] IWebHostEnvironment env)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return BadRequest(new { success = false, message = "Title is required" });
+            }
+
+            if (image == null || image.Length == 0)
+            {
+                return BadRequest(new { success = false, message = "Promotion image is required" });
+            }
+
+            try
+            {
+                var imageUrl = await SavePromotionImageAsync(image, env);
+                var created = await promotionService.CreateAsync(new MobilePromotionRecord
+                {
+                    Title = title.Trim(),
+                    ImageUrl = imageUrl,
+                    SortOrder = sortOrder,
+                    DurationSeconds = durationSeconds <= 0 ? 5 : durationSeconds,
+                    IsActive = isActive,
+                    StartAt = startAt,
+                    EndAt = endAt,
+                });
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Promotion created",
+                    data = MapPromotionAdmin(created),
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
+            {
+                return StatusCode(statusCode, new { success = false, message = dbMessage });
+            }
+        }
+
+        /// <summary>Update promotion metadata; optional new image.</summary>
+        [HttpPut("promotions/{id:int}")]
+        [RequestSizeLimit(8_000_000)]
+        public async Task<IActionResult> UpdatePromotion(
+            int id,
+            [FromForm] string title,
+            [FromForm] int sortOrder,
+            [FromForm] int durationSeconds,
+            [FromForm] bool isActive,
+            [FromForm] DateTime? startAt,
+            [FromForm] DateTime? endAt,
+            IFormFile? image,
+            [FromServices] IPromotionService promotionService,
+            [FromServices] IWebHostEnvironment env)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return BadRequest(new { success = false, message = "Title is required" });
+            }
+
+            try
+            {
+                var existing = await promotionService.GetByIdAsync(id);
+                if (existing == null)
+                {
+                    return NotFound(new { success = false, message = "Promotion not found" });
+                }
+
+                if (image != null && image.Length > 0)
+                {
+                    existing.ImageUrl = await SavePromotionImageAsync(image, env);
+                }
+
+                existing.Title = title.Trim();
+                existing.SortOrder = sortOrder;
+                existing.DurationSeconds = durationSeconds <= 0 ? 5 : durationSeconds;
+                existing.IsActive = isActive;
+                existing.StartAt = startAt;
+                existing.EndAt = endAt;
+
+                var updated = await promotionService.UpdateAsync(existing);
+                if (!updated)
+                {
+                    return NotFound(new { success = false, message = "Promotion not found" });
+                }
+
+                var refreshed = await promotionService.GetByIdAsync(id);
+                return Ok(new
+                {
+                    success = true,
+                    message = "Promotion updated",
+                    data = refreshed == null ? null : MapPromotionAdmin(refreshed),
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
+            {
+                return StatusCode(statusCode, new { success = false, message = dbMessage });
+            }
+        }
+
+        /// <summary>Delete a promotion.</summary>
+        [HttpDelete("promotions/{id:int}")]
+        public async Task<IActionResult> DeletePromotion(
+            int id,
+            [FromServices] IPromotionService promotionService)
+        {
+            try
+            {
+                var deleted = await promotionService.DeleteAsync(id);
+                return deleted
+                    ? Ok(new { success = true, message = "Promotion deleted" })
+                    : NotFound(new { success = false, message = "Promotion not found" });
+            }
+            catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
+            {
+                return StatusCode(statusCode, new { success = false, message = dbMessage });
+            }
+        }
+
+        private static object MapPromotionAdmin(MobilePromotionRecord p) => new
+        {
+            promotionId = p.PromotionId,
+            title = p.Title,
+            imageUrl = p.ImageUrl,
+            sortOrder = p.SortOrder,
+            durationSeconds = p.DurationSeconds,
+            isActive = p.IsActive,
+            startAt = p.StartAt,
+            endAt = p.EndAt,
+            createdAt = p.CreatedAt,
+            updatedAt = p.UpdatedAt,
+        };
+
+        private static async Task<string> SavePromotionImageAsync(IFormFile image, IWebHostEnvironment env)
+        {
+            var ext = Path.GetExtension(image.FileName).ToLowerInvariant();
+            var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
+            if (!allowed.Contains(ext))
+            {
+                throw new InvalidOperationException("Image must be JPG, PNG, WEBP, or GIF");
+            }
+
+            if (image.Length > 6_000_000)
+            {
+                throw new InvalidOperationException("Image must be 6 MB or smaller");
+            }
+
+            var webRoot = env.WebRootPath;
+            if (string.IsNullOrWhiteSpace(webRoot))
+            {
+                webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            }
+
+            var folder = Path.Combine(webRoot, "uploads", "promotions");
+            Directory.CreateDirectory(folder);
+
+            var fileName = $"{Guid.NewGuid():N}{ext}";
+            var fullPath = Path.Combine(folder, fileName);
+            await using (var stream = System.IO.File.Create(fullPath))
+            {
+                await image.CopyToAsync(stream);
+            }
+
+            return $"/uploads/promotions/{fileName}";
+        }
     }
 }

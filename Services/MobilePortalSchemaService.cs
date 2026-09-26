@@ -61,6 +61,7 @@ namespace HospitalMobileAPPApi.Services
             "MOBILE_AUDIT_LOG",
             "TELEMED_SESSION",
             "MOBILE_CONTENT_LOCALIZED",
+            "MOBILE_PROMOTION",
             "MOBILE_FAQ",
             "MOBILE_SUPPORT_TICKET",
             "MOBILE_APP_SESSION",
