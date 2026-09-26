@@ -82,8 +82,9 @@ namespace HospitalMobileAPPApi.Swagger
                     responseExample: """
                         {
                           "message": "Verification successful",
-                          "mr_no": "010-002-152",
-                          "contactno": "03001234567"
+                          "mrNo": "010-002-152",
+                          "contactNo": "03001234567",
+                          "hasPortalAccount": true
                         }
                         """,
                     parameterDescriptions: new Dictionary<string, string>
@@ -392,7 +393,7 @@ namespace HospitalMobileAPPApi.Swagger
                 ["PatientReport_GenerateReport"] = new(
                     summary: "Generate lab/gastro/radiology/prescription PDF",
                     description: """
-                        Generates a PDF report using RDLC templates from the `Reports` folder.
+                        Generates a PDF report using the native QuestPDF engine (layout matched to legacy RDLC templates).
                         Used by the mobile app for health record PDFs.
 
                         | reportName | rptId | parameters |
@@ -405,7 +406,7 @@ namespace HospitalMobileAPPApi.Swagger
                     parameterDescriptions: new Dictionary<string, string>
                     {
                         ["rptId"] = "Report master id (19=Lab, 64=Gastro, 22=Radiology, 141=Prescription).",
-                        ["reportName"] = "RDLC file name without extension (e.g. Labrpt).",
+                        ["reportName"] = "Report template name (e.g. Labrpt, GastRpt, RadRpt, PRESCRIPTION_A4).",
                         ["parameters"] = "Primary key — PAT_DIAG_ID or PATIENT_VISIT_ID depending on report.",
                         ["user"] = "Printed-by label (default: MobileApp).",
                     }),
