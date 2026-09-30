@@ -336,6 +336,103 @@ namespace HospitalMobileAPPApi.Services
                         END IF;
                     END;", cancellationToken);
             }
+
+            await EnsureSupportContentColumnsAsync(conn, cancellationToken);
+        }
+
+        private static async Task EnsureSupportContentColumnsAsync(
+            OracleConnection conn,
+            CancellationToken cancellationToken)
+        {
+            if (await TableExistsAsync(conn, "MOBILE_SUPPORT_CONTACT", cancellationToken))
+            {
+                await EnsureColumnAsync(
+                    conn,
+                    "MOBILE_SUPPORT_CONTACT",
+                    "UPDATED_AT",
+                    "ALTER TABLE MOBILE_SUPPORT_CONTACT ADD (UPDATED_AT DATE DEFAULT SYSDATE NOT NULL)",
+                    cancellationToken);
+            }
+
+            if (!await TableExistsAsync(conn, "MOBILE_FAQ", cancellationToken))
+            {
+                return;
+            }
+
+            await EnsureColumnAsync(
+                conn,
+                "MOBILE_FAQ",
+                "CATEGORY",
+                "ALTER TABLE MOBILE_FAQ ADD (CATEGORY VARCHAR2(80) DEFAULT 'General' NOT NULL)",
+                cancellationToken);
+            await EnsureColumnAsync(
+                conn,
+                "MOBILE_FAQ",
+                "QUESTION_UR",
+                "ALTER TABLE MOBILE_FAQ ADD (QUESTION_UR VARCHAR2(500))",
+                cancellationToken);
+            await EnsureColumnAsync(
+                conn,
+                "MOBILE_FAQ",
+                "ANSWER_UR",
+                "ALTER TABLE MOBILE_FAQ ADD (ANSWER_UR VARCHAR2(2000))",
+                cancellationToken);
+            await EnsureColumnAsync(
+                conn,
+                "MOBILE_FAQ",
+                "SORT_ORDER",
+                "ALTER TABLE MOBILE_FAQ ADD (SORT_ORDER NUMBER DEFAULT 0 NOT NULL)",
+                cancellationToken);
+            await EnsureColumnAsync(
+                conn,
+                "MOBILE_FAQ",
+                "IS_ACTIVE",
+                "ALTER TABLE MOBILE_FAQ ADD (IS_ACTIVE CHAR(1) DEFAULT 'Y' NOT NULL)",
+                cancellationToken);
+            await EnsureColumnAsync(
+                conn,
+                "MOBILE_FAQ",
+                "CREATED_AT",
+                "ALTER TABLE MOBILE_FAQ ADD (CREATED_AT DATE DEFAULT SYSDATE NOT NULL)",
+                cancellationToken);
+            await EnsureColumnAsync(
+                conn,
+                "MOBILE_FAQ",
+                "UPDATED_AT",
+                "ALTER TABLE MOBILE_FAQ ADD (UPDATED_AT DATE DEFAULT SYSDATE NOT NULL)",
+                cancellationToken);
+        }
+
+        private static async Task EnsureColumnAsync(
+            OracleConnection conn,
+            string tableName,
+            string columnName,
+            string alterSql,
+            CancellationToken cancellationToken)
+        {
+            if (await ColumnExistsAsync(conn, tableName, columnName, cancellationToken))
+            {
+                return;
+            }
+
+            await ExecuteDdlAsync(conn, alterSql, cancellationToken);
+        }
+
+        private static async Task<bool> ColumnExistsAsync(
+            OracleConnection conn,
+            string tableName,
+            string columnName,
+            CancellationToken cancellationToken)
+        {
+            await using var cmd = new OracleCommand(@"
+                SELECT COUNT(*)
+                FROM USER_TAB_COLUMNS
+                WHERE TABLE_NAME = :table_name
+                  AND COLUMN_NAME = :column_name", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add(new OracleParameter("table_name", tableName.ToUpperInvariant()));
+            cmd.Parameters.Add(new OracleParameter("column_name", columnName.ToUpperInvariant()));
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken)) > 0;
         }
 
         private static async Task EnsurePromotionSettingsAsync(
