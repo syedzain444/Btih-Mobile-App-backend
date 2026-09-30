@@ -18,9 +18,10 @@ namespace HospitalMobileAPPApi.Controllers
         /// <summary>Hospital contact details for Help &amp; Support screen.</summary>
         [HttpGet("contact")]
         [AllowAnonymous]
-        public IActionResult GetContact()
+        public async Task<IActionResult> GetContact()
         {
-            return Ok(new { success = true, data = _supportService.GetContactInfo() });
+            var contact = await _supportService.GetContactInfoAsync();
+            return Ok(new { success = true, data = contact });
         }
 
         /// <summary>FAQ list (English or Urdu).</summary>
@@ -32,15 +33,37 @@ namespace HospitalMobileAPPApi.Controllers
             return Ok(new { success = true, lang, data = faq });
         }
 
-        /// <summary>Submit a support ticket (guest or authenticated patient).</summary>
+        /// <summary>Submit a support ticket / complaint / suggestion (guest or authenticated patient).</summary>
         [HttpPost("tickets")]
+        [AllowAnonymous]
         public async Task<IActionResult> CreateTicket([FromBody] CreateSupportTicketRequest request)
         {
+            if (request == null)
+            {
+                return BadRequest(new { success = false, message = "Request body is required." });
+            }
+
             if (string.IsNullOrWhiteSpace(request.ContactName) ||
-                string.IsNullOrWhiteSpace(request.Subject) ||
                 string.IsNullOrWhiteSpace(request.Description))
             {
-                return BadRequest(new { success = false, message = "Contact name, subject, and description are required." });
+                return BadRequest(new { success = false, message = "Contact name and message are required." });
+            }
+
+            if (request.Description.Trim().Length < 10)
+            {
+                return BadRequest(new { success = false, message = "Please provide a more detailed message (at least 10 characters)." });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Subject))
+            {
+                request.Subject = string.IsNullOrWhiteSpace(request.Category)
+                    ? "Support request"
+                    : request.Category.Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Category))
+            {
+                request.Category = "General";
             }
 
             if (!string.IsNullOrWhiteSpace(request.MrNo) &&
@@ -51,7 +74,12 @@ namespace HospitalMobileAPPApi.Controllers
             }
 
             var ticketId = await _supportService.CreateTicketAsync(request);
-            return Ok(new { success = true, message = "Support ticket submitted.", ticketId });
+            return Ok(new
+            {
+                success = true,
+                message = "Complaint / suggestion submitted. Staff have been notified.",
+                ticketId,
+            });
         }
 
         /// <summary>Patient's support tickets.</summary>

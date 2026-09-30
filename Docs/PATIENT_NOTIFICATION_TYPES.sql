@@ -8,6 +8,7 @@
 -- appointment_rescheduled
 -- appointment_reminder
 -- follow_up_reminder
+-- appointment_fasting_reminder  (Radiology / Gastro prep — REQ-2026-009)
 
 -- Lab / records
 -- lab_report_ready

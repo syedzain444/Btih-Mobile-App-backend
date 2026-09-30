@@ -185,9 +185,17 @@ namespace HospitalMobileAPPApi.Repository
 
     public interface ISupportRepository
     {
+        Task<SupportContactDto?> GetContactAsync();
+        Task UpsertContactAsync(SupportContactDto contact);
         Task<List<FaqItem>> GetFaqAsync(string langCode, string? category);
+        Task<List<FaqAdminItem>> GetAllFaqsAdminAsync();
+        Task<FaqAdminItem?> GetFaqByIdAsync(int faqId);
+        Task<int> CreateFaqAsync(FaqAdminItem item);
+        Task<bool> UpdateFaqAsync(FaqAdminItem item);
+        Task<bool> DeleteFaqAsync(int faqId);
         Task<int> CreateTicketAsync(CreateSupportTicketRequest request);
         Task<SupportTicketDto?> GetTicketAsync(int ticketId, string? mrNo);
+        Task<SupportTicketDto?> GetTicketByIdAsync(int ticketId);
         Task<List<SupportTicketDto>> GetTicketsByMrNoAsync(string mrNo);
     }
 
@@ -196,6 +204,56 @@ namespace HospitalMobileAPPApi.Repository
         private readonly IConfiguration _configuration;
 
         public SupportRepository(IConfiguration configuration) => _configuration = configuration;
+
+        public async Task<SupportContactDto?> GetContactAsync()
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT HOSPITAL_NAME, PHONE, EMAIL, ADDRESS, WORKING_HOURS
+                FROM MOBILE_SUPPORT_CONTACT
+                WHERE CONTACT_ID = 1", conn);
+            await conn.OpenAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync()) return null;
+            return new SupportContactDto
+            {
+                HospitalName = reader["HOSPITAL_NAME"]?.ToString() ?? string.Empty,
+                Phone = reader["PHONE"]?.ToString() ?? string.Empty,
+                Email = reader["EMAIL"]?.ToString() ?? string.Empty,
+                Address = reader["ADDRESS"]?.ToString() ?? string.Empty,
+                WorkingHours = reader["WORKING_HOURS"]?.ToString() ?? string.Empty,
+            };
+        }
+
+        public async Task UpsertContactAsync(SupportContactDto contact)
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                MERGE INTO MOBILE_SUPPORT_CONTACT t
+                USING (SELECT 1 AS CONTACT_ID FROM DUAL) s
+                   ON (t.CONTACT_ID = s.CONTACT_ID)
+                WHEN MATCHED THEN
+                  UPDATE SET
+                    HOSPITAL_NAME = :hospital_name,
+                    PHONE = :phone,
+                    EMAIL = :email,
+                    ADDRESS = :address,
+                    WORKING_HOURS = :working_hours,
+                    UPDATED_AT = SYSDATE
+                WHEN NOT MATCHED THEN
+                  INSERT (CONTACT_ID, HOSPITAL_NAME, PHONE, EMAIL, ADDRESS, WORKING_HOURS, UPDATED_AT)
+                  VALUES (1, :hospital_name, :phone, :email, :address, :working_hours, SYSDATE)", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add(new OracleParameter("hospital_name", contact.HospitalName.Trim()));
+            cmd.Parameters.Add(new OracleParameter("phone", contact.Phone.Trim()));
+            cmd.Parameters.Add(new OracleParameter("email", contact.Email.Trim()));
+            cmd.Parameters.Add(new OracleParameter("address", contact.Address.Trim()));
+            cmd.Parameters.Add(new OracleParameter("working_hours", contact.WorkingHours.Trim()));
+            await conn.OpenAsync();
+            await cmd.ExecuteNonQueryAsync();
+        }
 
         public async Task<List<FaqItem>> GetFaqAsync(string langCode, string? category)
         {
@@ -231,6 +289,100 @@ namespace HospitalMobileAPPApi.Repository
             return list;
         }
 
+        public async Task<List<FaqAdminItem>> GetAllFaqsAdminAsync()
+        {
+            var list = new List<FaqAdminItem>();
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT FAQ_ID, CATEGORY, QUESTION_EN, ANSWER_EN, QUESTION_UR, ANSWER_UR,
+                       SORT_ORDER, IS_ACTIVE, CREATED_AT, UPDATED_AT
+                FROM MOBILE_FAQ
+                ORDER BY SORT_ORDER, FAQ_ID", conn);
+            await conn.OpenAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(MapFaqAdmin(reader));
+            }
+            return list;
+        }
+
+        public async Task<FaqAdminItem?> GetFaqByIdAsync(int faqId)
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT FAQ_ID, CATEGORY, QUESTION_EN, ANSWER_EN, QUESTION_UR, ANSWER_UR,
+                       SORT_ORDER, IS_ACTIVE, CREATED_AT, UPDATED_AT
+                FROM MOBILE_FAQ
+                WHERE FAQ_ID = :faq_id", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add(new OracleParameter("faq_id", faqId));
+            await conn.OpenAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync()) return null;
+            return MapFaqAdmin(reader);
+        }
+
+        public async Task<int> CreateFaqAsync(FaqAdminItem item)
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                INSERT INTO MOBILE_FAQ (
+                    CATEGORY, QUESTION_EN, ANSWER_EN, QUESTION_UR, ANSWER_UR,
+                    SORT_ORDER, IS_ACTIVE, CREATED_AT, UPDATED_AT
+                ) VALUES (
+                    :category, :question_en, :answer_en, :question_ur, :answer_ur,
+                    :sort_order, :is_active, SYSDATE, SYSDATE
+                ) RETURNING FAQ_ID INTO :faq_id", conn);
+            cmd.BindByName = true;
+            BindFaqParams(cmd, item);
+            var outParam = new OracleParameter("faq_id", OracleDbType.Int32)
+            {
+                Direction = System.Data.ParameterDirection.Output,
+            };
+            cmd.Parameters.Add(outParam);
+            await conn.OpenAsync();
+            await cmd.ExecuteNonQueryAsync();
+            return Convert.ToInt32(outParam.Value.ToString());
+        }
+
+        public async Task<bool> UpdateFaqAsync(FaqAdminItem item)
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                UPDATE MOBILE_FAQ
+                   SET CATEGORY = :category,
+                       QUESTION_EN = :question_en,
+                       ANSWER_EN = :answer_en,
+                       QUESTION_UR = :question_ur,
+                       ANSWER_UR = :answer_ur,
+                       SORT_ORDER = :sort_order,
+                       IS_ACTIVE = :is_active,
+                       UPDATED_AT = SYSDATE
+                 WHERE FAQ_ID = :faq_id", conn);
+            cmd.BindByName = true;
+            BindFaqParams(cmd, item);
+            cmd.Parameters.Add(new OracleParameter("faq_id", item.FaqId));
+            await conn.OpenAsync();
+            return await cmd.ExecuteNonQueryAsync() > 0;
+        }
+
+        public async Task<bool> DeleteFaqAsync(int faqId)
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(
+                "DELETE FROM MOBILE_FAQ WHERE FAQ_ID = :faq_id", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add(new OracleParameter("faq_id", faqId));
+            await conn.OpenAsync();
+            return await cmd.ExecuteNonQueryAsync() > 0;
+        }
+
         public async Task<int> CreateTicketAsync(CreateSupportTicketRequest request)
         {
             var connStr = _configuration.GetConnectionString("HMISConnection");
@@ -261,7 +413,8 @@ namespace HospitalMobileAPPApi.Repository
             var connStr = _configuration.GetConnectionString("HMISConnection");
             await using var conn = new OracleConnection(connStr);
             var sql = @"
-                SELECT TICKET_ID, MR_NO, CONTACT_NAME, CATEGORY, SUBJECT, DESCRIPTION, STATUS, ADMIN_NOTES, CREATED_AT, UPDATED_AT
+                SELECT TICKET_ID, MR_NO, CONTACT_NAME, CONTACT_PHONE, CONTACT_EMAIL,
+                       CATEGORY, SUBJECT, DESCRIPTION, STATUS, ADMIN_NOTES, CREATED_AT, UPDATED_AT
                 FROM MOBILE_SUPPORT_TICKET WHERE TICKET_ID = :ticket_id";
             if (!string.IsNullOrWhiteSpace(mrNo)) sql += " AND MR_NO = :mr_no";
             await using var cmd = new OracleCommand(sql, conn);
@@ -271,20 +424,11 @@ namespace HospitalMobileAPPApi.Repository
             await conn.OpenAsync();
             await using var reader = await cmd.ExecuteReaderAsync();
             if (!await reader.ReadAsync()) return null;
-            return new SupportTicketDto
-            {
-                TicketId = Convert.ToInt32(reader["TICKET_ID"]),
-                MrNo = reader["MR_NO"]?.ToString(),
-                ContactName = reader["CONTACT_NAME"]?.ToString() ?? string.Empty,
-                Category = reader["CATEGORY"]?.ToString() ?? string.Empty,
-                Subject = reader["SUBJECT"]?.ToString() ?? string.Empty,
-                Description = reader["DESCRIPTION"]?.ToString() ?? string.Empty,
-                Status = reader["STATUS"]?.ToString() ?? "OPEN",
-                AdminNotes = reader["ADMIN_NOTES"]?.ToString(),
-                CreatedAt = Convert.ToDateTime(reader["CREATED_AT"]),
-                UpdatedAt = Convert.ToDateTime(reader["UPDATED_AT"]),
-            };
+            return MapTicket(reader);
         }
+
+        public Task<SupportTicketDto?> GetTicketByIdAsync(int ticketId) =>
+            GetTicketAsync(ticketId, mrNo: null);
 
         public async Task<List<SupportTicketDto>> GetTicketsByMrNoAsync(string mrNo)
         {
@@ -292,7 +436,8 @@ namespace HospitalMobileAPPApi.Repository
             var connStr = _configuration.GetConnectionString("HMISConnection");
             await using var conn = new OracleConnection(connStr);
             await using var cmd = new OracleCommand(@"
-                SELECT TICKET_ID, MR_NO, CONTACT_NAME, CATEGORY, SUBJECT, DESCRIPTION, STATUS, ADMIN_NOTES, CREATED_AT, UPDATED_AT
+                SELECT TICKET_ID, MR_NO, CONTACT_NAME, CONTACT_PHONE, CONTACT_EMAIL,
+                       CATEGORY, SUBJECT, DESCRIPTION, STATUS, ADMIN_NOTES, CREATED_AT, UPDATED_AT
                 FROM MOBILE_SUPPORT_TICKET WHERE MR_NO = :mr_no ORDER BY CREATED_AT DESC", conn);
             cmd.BindByName = true;
             cmd.Parameters.Add(new OracleParameter("mr_no", mrNo));
@@ -300,21 +445,53 @@ namespace HospitalMobileAPPApi.Repository
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
-                list.Add(new SupportTicketDto
-                {
-                    TicketId = Convert.ToInt32(reader["TICKET_ID"]),
-                    MrNo = reader["MR_NO"]?.ToString(),
-                    ContactName = reader["CONTACT_NAME"]?.ToString() ?? string.Empty,
-                    Category = reader["CATEGORY"]?.ToString() ?? string.Empty,
-                    Subject = reader["SUBJECT"]?.ToString() ?? string.Empty,
-                    Description = reader["DESCRIPTION"]?.ToString() ?? string.Empty,
-                    Status = reader["STATUS"]?.ToString() ?? "OPEN",
-                    AdminNotes = reader["ADMIN_NOTES"]?.ToString(),
-                    CreatedAt = Convert.ToDateTime(reader["CREATED_AT"]),
-                    UpdatedAt = Convert.ToDateTime(reader["UPDATED_AT"]),
-                });
+                list.Add(MapTicket(reader));
             }
             return list;
         }
+
+        private static void BindFaqParams(OracleCommand cmd, FaqAdminItem item)
+        {
+            cmd.Parameters.Add(new OracleParameter("category",
+                string.IsNullOrWhiteSpace(item.Category) ? "General" : item.Category.Trim()));
+            cmd.Parameters.Add(new OracleParameter("question_en", item.QuestionEn.Trim()));
+            cmd.Parameters.Add(new OracleParameter("answer_en", item.AnswerEn.Trim()));
+            cmd.Parameters.Add(new OracleParameter("question_ur",
+                string.IsNullOrWhiteSpace(item.QuestionUr) ? (object)DBNull.Value : item.QuestionUr.Trim()));
+            cmd.Parameters.Add(new OracleParameter("answer_ur",
+                string.IsNullOrWhiteSpace(item.AnswerUr) ? (object)DBNull.Value : item.AnswerUr.Trim()));
+            cmd.Parameters.Add(new OracleParameter("sort_order", item.SortOrder));
+            cmd.Parameters.Add(new OracleParameter("is_active", item.IsActive ? "Y" : "N"));
+        }
+
+        private static FaqAdminItem MapFaqAdmin(OracleDataReader reader) => new()
+        {
+            FaqId = Convert.ToInt32(reader["FAQ_ID"]),
+            Category = reader["CATEGORY"]?.ToString() ?? "General",
+            QuestionEn = reader["QUESTION_EN"]?.ToString() ?? string.Empty,
+            AnswerEn = reader["ANSWER_EN"]?.ToString() ?? string.Empty,
+            QuestionUr = reader["QUESTION_UR"]?.ToString(),
+            AnswerUr = reader["ANSWER_UR"]?.ToString(),
+            SortOrder = reader["SORT_ORDER"] == DBNull.Value ? 0 : Convert.ToInt32(reader["SORT_ORDER"]),
+            IsActive = string.Equals(reader["IS_ACTIVE"]?.ToString(), "Y", StringComparison.OrdinalIgnoreCase),
+            CreatedAt = reader["CREATED_AT"] == DBNull.Value ? null : Convert.ToDateTime(reader["CREATED_AT"]),
+            UpdatedAt = reader["UPDATED_AT"] == DBNull.Value ? null : Convert.ToDateTime(reader["UPDATED_AT"]),
+        };
+
+        private static SupportTicketDto MapTicket(OracleDataReader reader) => new()
+        {
+            TicketId = Convert.ToInt32(reader["TICKET_ID"]),
+            MrNo = reader["MR_NO"]?.ToString(),
+            ContactName = reader["CONTACT_NAME"]?.ToString() ?? string.Empty,
+            ContactPhone = reader["CONTACT_PHONE"]?.ToString(),
+            ContactEmail = reader["CONTACT_EMAIL"]?.ToString(),
+            Category = reader["CATEGORY"]?.ToString() ?? string.Empty,
+            Subject = reader["SUBJECT"]?.ToString() ?? string.Empty,
+            Description = reader["DESCRIPTION"]?.ToString() ?? string.Empty,
+            Status = reader["STATUS"]?.ToString() ?? "OPEN",
+            AdminNotes = reader["ADMIN_NOTES"]?.ToString(),
+            CreatedAt = Convert.ToDateTime(reader["CREATED_AT"]),
+            UpdatedAt = Convert.ToDateTime(reader["UPDATED_AT"]),
+        };
     }
 }

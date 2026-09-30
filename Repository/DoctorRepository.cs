@@ -13,16 +13,26 @@ namespace HospitalMobileAPPApi.Repository
     {
         private readonly IConfiguration _configuration;
         private readonly IWebHostEnvironment _environment;
+        private readonly ILogger<DoctorRepository> _logger;
 
-        public DoctorRepository(IConfiguration configuration, IWebHostEnvironment environment)
+        public DoctorRepository(
+            IConfiguration configuration,
+            IWebHostEnvironment environment,
+            ILogger<DoctorRepository> logger)
         {
             _configuration = configuration;
             _environment = environment;
+            _logger = logger;
         }
 
         private OracleConnection CreateConnection()
         {
             var connStr = _configuration.GetConnectionString("HOS_WEB_MVC_LIVE");
+            if (string.IsNullOrWhiteSpace(connStr))
+            {
+                throw new InvalidOperationException("HOS_WEB_MVC_LIVE connection string is not configured");
+            }
+
             return new OracleConnection(connStr);
         }
 
@@ -30,74 +40,127 @@ namespace HospitalMobileAPPApi.Repository
         {
             try
             {
-                using var conn = CreateConnection();
+                await using var conn = CreateConnection();
+                await conn.OpenAsync();
 
-                // ✅ 1. Get total count (separate query)
-                var countQuery = "SELECT COUNT(*) FROM DOCTOR";
-                int totalCount = await conn.ExecuteScalarAsync<int>(countQuery);
-
-                // ✅ 2. Paginated query (NO semicolon)
-                var dataQuery = @"
-        SELECT * FROM (
-            SELECT inner_query.*, ROWNUM rnum
-            FROM (
-                SELECT d.DOCTOR_NAME, 
-                       d.DOCTOR_ID, 
-                       d.DOCTOR_DESCRIPTION, 
-                       d.DOCTOR_IMAGE_PATH, 
-                       d.DEPARTMENT_ID,
-                       s.SPECIALIZATIONNAME
-                FROM DOCTOR d
-                INNER JOIN SPECIALIZATION s 
-                    ON d.SPECIALIZATIONID = s.SPECIALIZATIONID
-                ORDER BY d.DOCTOR_ID
-            ) inner_query
-            WHERE ROWNUM <= :MaxRow
-        )
-        WHERE rnum > :MinRow";
-
-                var parameters = new
+                // Count all doctors (specialization is optional via LEFT JOIN below).
+                await using (var countCmd = new OracleCommand("SELECT COUNT(*) FROM DOCTOR", conn))
                 {
-                    MinRow = (pageNumber - 1) * pageSize,
-                    MaxRow = pageNumber * pageSize
-                };
+                    var countObj = await countCmd.ExecuteScalarAsync();
+                    var totalCount = Convert.ToInt32(countObj);
 
-                var doctorData = await conn.QueryAsync<dynamic>(dataQuery, parameters);
-
-                var doctors = new List<DoctorInfo>();
-                int serial = (pageNumber - 1) * pageSize + 1;
-
-                foreach (var doctor in doctorData)
-                {
-                    var imagePathFromDb = doctor.DOCTOR_IMAGE_PATH?.ToString();
-                    string imageUrl = null;
-
-                    if (!string.IsNullOrWhiteSpace(imagePathFromDb))
+                    if (totalCount == 0)
                     {
-                        var cleanPath = imagePathFromDb
-                                            .Replace("~", "")
-                                            .TrimStart('/');
-
-                        imageUrl = $"http://172.16.40.10:8080/{cleanPath}";
+                        return (new List<DoctorInfo>(), 0);
                     }
 
-                    doctors.Add(new DoctorInfo
+                    var minRow = (pageNumber - 1) * pageSize;
+                    var maxRow = pageNumber * pageSize;
+
+                    await using var dataCmd = new OracleCommand(@"
+SELECT * FROM (
+    SELECT inner_query.*, ROWNUM rnum
+      FROM (
+            SELECT d.DOCTOR_NAME,
+                   d.DOCTOR_ID,
+                   d.DOCTOR_DESCRIPTION,
+                   d.DOCTOR_IMAGE_PATH,
+                   d.DEPARTMENT_ID,
+                   s.SPECIALIZATIONNAME
+              FROM DOCTOR d
+              LEFT JOIN SPECIALIZATION s
+                ON d.SPECIALIZATIONID = s.SPECIALIZATIONID
+             ORDER BY d.DOCTOR_ID
+      ) inner_query
+     WHERE ROWNUM <= :MaxRow
+)
+ WHERE rnum > :MinRow", conn);
+
+                    dataCmd.BindByName = true;
+                    dataCmd.Parameters.Add("MaxRow", OracleDbType.Int32).Value = maxRow;
+                    dataCmd.Parameters.Add("MinRow", OracleDbType.Int32).Value = minRow;
+
+                    var doctors = new List<DoctorInfo>();
+                    var serial = minRow + 1;
+
+                    await using var reader = await dataCmd.ExecuteReaderAsync();
+                    while (await reader.ReadAsync())
                     {
-                        SerialNumber = serial++,
-                        Doctor_ID = Convert.ToInt32(doctor.DOCTOR_ID),
-                        DoctorName = doctor.DOCTOR_NAME?.ToString(),
-                        DoctorDescription = doctor.DOCTOR_DESCRIPTION?.ToString(),
-                        SpecializationName = doctor.SPECIALIZATIONNAME?.ToString(),
-                        Department_ID = Convert.ToInt32(doctor.DEPARTMENT_ID),
-                        DoctorImagePath = imageUrl
-                    });
+                        doctors.Add(new DoctorInfo
+                        {
+                            SerialNumber = serial++,
+                            Doctor_ID = reader["DOCTOR_ID"] == DBNull.Value
+                                ? 0
+                                : Convert.ToInt32(reader["DOCTOR_ID"]),
+                            DoctorName = reader["DOCTOR_NAME"]?.ToString(),
+                            DoctorDescription = reader["DOCTOR_DESCRIPTION"]?.ToString(),
+                            SpecializationName = reader["SPECIALIZATIONNAME"] == DBNull.Value
+                                ? null
+                                : reader["SPECIALIZATIONNAME"]?.ToString(),
+                            Department_ID = reader["DEPARTMENT_ID"] == DBNull.Value
+                                ? 0
+                                : Convert.ToInt32(reader["DEPARTMENT_ID"]),
+                            DoctorImagePath = BuildDoctorImageUrl(
+                                reader["DOCTOR_IMAGE_PATH"] == DBNull.Value
+                                    ? null
+                                    : reader["DOCTOR_IMAGE_PATH"]?.ToString()),
+                        });
+                    }
+
+                    return (doctors, totalCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "GetDoctorsAsync failed for page {PageNumber} size {PageSize}", pageNumber, pageSize);
+                throw;
+            }
+        }
+
+        private string? BuildDoctorImageUrl(string? imagePathFromDb)
+        {
+            if (string.IsNullOrWhiteSpace(imagePathFromDb))
+            {
+                return null;
+            }
+
+            try
+            {
+                var cleanPath = imagePathFromDb
+                    .Replace("~", string.Empty, StringComparison.Ordinal)
+                    .Trim()
+                    .TrimStart('/', '\\')
+                    .Replace('\\', '/');
+
+                if (cleanPath.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    cleanPath.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (Uri.TryCreate(cleanPath, UriKind.Absolute, out var absolute) &&
+                        !string.IsNullOrWhiteSpace(absolute.AbsolutePath))
+                    {
+                        cleanPath = absolute.AbsolutePath.TrimStart('/');
+                    }
                 }
 
-                return (doctors, totalCount);
+                if (string.IsNullOrWhiteSpace(cleanPath))
+                {
+                    return null;
+                }
+
+                var encoded = EncodePathKeepSlashes(cleanPath);
+                var configuredBase = _configuration["DoctorImages:BaseUrl"];
+                if (!string.IsNullOrWhiteSpace(configuredBase) &&
+                    !IsLegacyImageHost(configuredBase))
+                {
+                    return $"{configuredBase.TrimEnd('/')}/{encoded}";
+                }
+
+                return "/" + encoded;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                return (new List<DoctorInfo>(), 0);
+                _logger.LogWarning(ex, "Could not build doctor image URL from {Path}", imagePathFromDb);
+                return null;
             }
         }
 
@@ -263,27 +326,67 @@ namespace HospitalMobileAPPApi.Repository
             var connStr = _configuration.GetConnectionString("HOS_WEB_MVC_LIVE");
 
             using var conn = new OracleConnection(connStr);
+            // Only specializations that currently have doctors — keeps the app filter
+            // in sync when DOCTOR / SPECIALIZATION data is refreshed.
             using var cmd = new OracleCommand(@"
-        SELECT * FROM SPECIALIZATION WHERE STATUS = 'Y'
-    ", conn);
+                SELECT DISTINCT
+                       s.SPECIALIZATIONID,
+                       s.SPECIALIZATIONNAME
+                FROM SPECIALIZATION s
+                INNER JOIN DOCTOR d
+                    ON d.SPECIALIZATIONID = s.SPECIALIZATIONID
+                WHERE s.SPECIALIZATIONNAME IS NOT NULL
+                ORDER BY s.SPECIALIZATIONNAME
+            ", conn);
 
             await conn.OpenAsync();
             using var reader = await cmd.ExecuteReaderAsync();
 
             while (await reader.ReadAsync())
             {
+                var name = reader["SPECIALIZATIONNAME"]?.ToString()?.Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+
                 doctors.Add(new SpecializationInfo
                 {
                     SerialNumber = serial++,
-
-                    // Map ONLY columns that exist in SPECIALIZATION
                     SpecializationId = Convert.ToInt32(reader["SPECIALIZATIONID"]),
-                    SpecializationName = reader["SPECIALIZATIONNAME"]?.ToString()
+                    SpecializationName = name,
                 });
             }
 
             return doctors;
         }
 
+        private static bool IsLegacyImageHost(string hostOrUrl)
+        {
+            if (string.IsNullOrWhiteSpace(hostOrUrl))
+            {
+                return true;
+            }
+
+            var host = hostOrUrl.Trim();
+            if (Uri.TryCreate(host, UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Host))
+            {
+                host = uri.Host;
+            }
+
+            return host.Equals("172.16.40.10", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string EncodePathKeepSlashes(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return string.Empty;
+            }
+
+            return string.Join(
+                "/",
+                path.Split('/', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(segment => Uri.EscapeDataString(segment)));
+        }
     }
 }

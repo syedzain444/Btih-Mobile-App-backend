@@ -92,6 +92,7 @@ namespace HospitalMobileAPPApi.Models
         public const string AppointmentRescheduled = "appointment_rescheduled";
         public const string AppointmentReminder = "appointment_reminder";
         public const string FollowUpReminder = "follow_up_reminder";
+        public const string AppointmentFastingReminder = "appointment_fasting_reminder";
 
         // Reports / records
         public const string LabReportReady = "lab_report_ready";
@@ -115,6 +116,11 @@ namespace HospitalMobileAPPApi.Models
         public const string MessageReceived = "message_received";
         public const string MessageThreadClosed = "message_thread_closed";
 
+        // Support / complaints
+        public const string SupportTicketSubmitted = "support_ticket_submitted";
+        public const string SupportTicketUpdated = "support_ticket_updated";
+        public const string SupportTicketReply = "support_ticket_reply";
+
         // Security / profile
         public const string ProfileUpdated = "profile_updated";
         public const string PasswordChanged = "password_changed";
@@ -131,11 +137,13 @@ namespace HospitalMobileAPPApi.Models
         {
             AppointmentRequestReceived, AppointmentConfirmed, AppointmentCancelled,
             AppointmentRescheduled, AppointmentReminder, FollowUpReminder,
+            AppointmentFastingReminder,
             LabReportReady, GastroReportReady, RadiologyReportReady, PrescriptionAdded,
             DischargeSummaryReady, VisitSummaryReady, ReportReady,
             MedicationReminder, MedicationScheduleUpdated,
             BillGenerated, PaymentPending, PaymentConfirmed,
             MessageReceived, MessageThreadClosed,
+            SupportTicketSubmitted, SupportTicketUpdated, SupportTicketReply,
             ProfileUpdated, PasswordChanged, AppPinChanged,
             TrustedDeviceAdded, TrustedDeviceRemoved, NewLoginAlert,
             HospitalAnnouncement, HospitalPromotion,
@@ -150,6 +158,7 @@ namespace HospitalMobileAPPApi.Models
         public const string Records = "records";
         public const string Billing = "billing";
         public const string Messaging = "messaging";
+        public const string Support = "support";
         public const string Security = "security";
         public const string General = "general";
     }

@@ -97,7 +97,8 @@ namespace HospitalMobileAPPApi.Services
                 PushNotificationTypes.AppointmentCancelled or
                 PushNotificationTypes.AppointmentRescheduled or
                 PushNotificationTypes.AppointmentReminder or
-                PushNotificationTypes.FollowUpReminder
+                PushNotificationTypes.FollowUpReminder or
+                PushNotificationTypes.AppointmentFastingReminder
                     => NotificationCategories.Appointments,
 
                 PushNotificationTypes.LabReportReady
@@ -123,6 +124,11 @@ namespace HospitalMobileAPPApi.Services
                 PushNotificationTypes.MessageReceived or
                 PushNotificationTypes.MessageThreadClosed
                     => NotificationCategories.Messaging,
+
+                PushNotificationTypes.SupportTicketSubmitted or
+                PushNotificationTypes.SupportTicketUpdated or
+                PushNotificationTypes.SupportTicketReply
+                    => NotificationCategories.Support,
 
                 PushNotificationTypes.ProfileUpdated or
                 PushNotificationTypes.PasswordChanged or
@@ -161,10 +167,12 @@ namespace HospitalMobileAPPApi.Services
             {
                 PushNotificationTypes.AppointmentReminder or
                 PushNotificationTypes.AppointmentCancelled or
+                PushNotificationTypes.AppointmentFastingReminder or
                 PushNotificationTypes.LabReportReady or
                 PushNotificationTypes.MedicationReminder or
                 PushNotificationTypes.PaymentPending or
                 PushNotificationTypes.MessageReceived or
+                PushNotificationTypes.SupportTicketReply or
                 PushNotificationTypes.NewLoginAlert or
                 PushNotificationTypes.PasswordChanged
                     => "high",

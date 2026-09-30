@@ -1,3 +1,4 @@
+using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Repository;
 
@@ -35,17 +36,18 @@ namespace HospitalMobileAPPApi.Services
                 return Fail("Phone number, first name, password, confirm password, and OTP are required");
             }
 
-            if (request.Password != request.ConfirmPassword)
+            if (!HospitalAuthPolicy.TryValidateLoginContact(request.PhoneNumber, out var phone, out var phoneError))
             {
-                return Fail("Password and confirm password do not match");
+                return Fail(phoneError ?? "Enter a valid mobile number");
             }
 
-            if (request.Password.Length < 6)
+            if (!HospitalAuthPolicy.TryValidateNewPassword(
+                    request.Password,
+                    out var passwordError,
+                    confirmPassword: request.ConfirmPassword))
             {
-                return Fail("Password must be at least 6 characters");
+                return Fail(passwordError ?? "Password does not meet hospital policy");
             }
-
-            var phone = request.PhoneNumber.Trim();
 
             if (await _registrationRepository.IsMobilePhoneRegisteredAsync(phone))
             {

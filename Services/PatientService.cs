@@ -7,15 +7,21 @@ namespace HospitalMobileAPPApi.Services
     {
         private readonly IPatientRepository _repo;
         private readonly IPushNotificationService _pushNotificationService;
+        private readonly IAppointmentPrepService _appointmentPrepService;
+        private readonly IAppointmentConfirmationService _confirmationService;
         private readonly ILogger<PatientService> _logger;
 
         public PatientService(
             IPatientRepository repo,
             IPushNotificationService pushNotificationService,
+            IAppointmentPrepService appointmentPrepService,
+            IAppointmentConfirmationService confirmationService,
             ILogger<PatientService> logger)
         {
             _repo = repo;
             _pushNotificationService = pushNotificationService;
+            _appointmentPrepService = appointmentPrepService;
+            _confirmationService = confirmationService;
             _logger = logger;
         }
 
@@ -49,29 +55,70 @@ namespace HospitalMobileAPPApi.Services
             return _repo.GetPrescriptions(MR_NO);
         }
 
-        public async Task<int> InsertAppointment(AppointmentModel model)
+        public async Task<AppointmentBookingResult> InsertAppointment(AppointmentModel model)
         {
-            var rowsAffected = await _repo.InsertAppointment(model);
+            var result = await _repo.InsertAppointment(model);
 
-            if (rowsAffected > 0 && !string.IsNullOrWhiteSpace(model.mrno))
+            if (result.RowsAffected > 0 && !string.IsNullOrWhiteSpace(result.AppointmentId))
             {
                 try
                 {
-                    await _pushNotificationService.SendAppointmentReminderAsync(new SendPatientNotificationRequest
-                    {
-                        MrNo = model.mrno,
-                        Title = "Appointment Request Received",
-                        Body = "Your appointment request has been received. We will update you soon.",
-                        AppointmentId = model.weekId.ToString(),
-                    });
+                    result.ConfirmationQr = await _confirmationService.EnsureQrAsync(result.AppointmentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to create confirmation QR for appointment {AppointmentId}",
+                        result.AppointmentId);
+                }
+            }
+
+            if (result.RowsAffected > 0 && !string.IsNullOrWhiteSpace(model.mrno))
+            {
+                try
+                {
+                    await _pushNotificationService.SendToPatientAsync(
+                        model.mrno,
+                        "Appointment Request Received",
+                        "Your appointment request has been received. We will update you soon.",
+                        PushNotificationTypes.AppointmentRequestReceived,
+                        new Dictionary<string, string>
+                        {
+                            ["screen"] = "appointments",
+                            ["weekId"] = model.weekId.ToString(),
+                            ["appointmentId"] = result.AppointmentId ?? string.Empty,
+                        });
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to send appointment push notification for MR No {MrNo}", model.mrno);
                 }
+
+                try
+                {
+                    int? alertId = null;
+                    if (!string.IsNullOrWhiteSpace(result.AppointmentId))
+                    {
+                        alertId = await _appointmentPrepService.ScheduleForAppointmentAsync(result.AppointmentId);
+                    }
+
+                    alertId ??= await _appointmentPrepService.ScheduleFromBookingAsync(model);
+                    if (alertId.HasValue)
+                    {
+                        _logger.LogInformation(
+                            "Scheduled fasting prep alert #{AlertId} for MR {MrNo}",
+                            alertId.Value,
+                            model.mrno);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to schedule fasting prep alert for MR No {MrNo}", model.mrno);
+                }
             }
 
-            return rowsAffected;
+            return result;
         }
 
         public async Task<bool> UpdatePatientPassword(string mrno, string patientPassword)
@@ -125,6 +172,18 @@ namespace HospitalMobileAPPApi.Services
                 request.MrNo,
                 request.Reason.Trim());
 
+            if (rows > 0)
+            {
+                try
+                {
+                    await _appointmentPrepService.CancelForAppointmentAsync(appointmentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to cancel prep alerts for appointment {AppointmentId}", appointmentId);
+                }
+            }
+
             return rows > 0;
         }
 
@@ -140,6 +199,18 @@ namespace HospitalMobileAPPApi.Services
             }
 
             var rows = await _repo.RequestRescheduleAsync(appointmentId, request);
+            if (rows > 0)
+            {
+                try
+                {
+                    await _appointmentPrepService.ScheduleForAppointmentAsync(appointmentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to reschedule prep alert for appointment {AppointmentId}", appointmentId);
+                }
+            }
+
             return rows > 0;
         }
 

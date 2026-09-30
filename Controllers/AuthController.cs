@@ -59,27 +59,82 @@ namespace HospitalMobileAPPApi.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.ContactNo) || string.IsNullOrWhiteSpace(request.Password))
+            if (!HospitalAuthPolicy.TryValidateLoginIdentifier(
+                    request.ContactNo,
+                    out var identifierKind,
+                    out var normalizedIdentifier,
+                    out var identifierError))
             {
-                return BadRequest(new { success = false, message = "Contact number and password are required" });
+                return BadRequest(HospitalAuthPolicy.ValidationFailure(
+                    identifierError ?? "Invalid MR number or mobile number",
+                    identifierError ?? "Invalid MR number or mobile number"));
+            }
+
+            if (!HospitalAuthPolicy.TryValidateLoginPassword(request.Password, out var passwordError))
+            {
+                return BadRequest(HospitalAuthPolicy.ValidationFailure(
+                    passwordError ?? "Password is required",
+                    passwordError ?? "Password is required"));
             }
 
             try
             {
-                var loginResult = await _authService.LoginAsync(
-                    request.ContactNo.Trim(),
-                    request.Password);
+                LoginResponse? loginResult;
+                if (identifierKind == HospitalAuthPolicy.LoginIdentifierKind.MrNumber)
+                {
+                    loginResult = await _authService.LoginByMrNoAsync(
+                        normalizedIdentifier,
+                        request.Password);
+                }
+                else
+                {
+                    loginResult = await _authService.LoginAsync(
+                        normalizedIdentifier,
+                        request.Password);
+
+                    // Also try raw trim for legacy CONTACT_NO formats that are not normalized.
+                    if ((loginResult == null || string.IsNullOrWhiteSpace(loginResult.MrNo))
+                        && !string.Equals(normalizedIdentifier, request.ContactNo.Trim(), StringComparison.Ordinal))
+                    {
+                        loginResult = await _authService.LoginAsync(
+                            request.ContactNo.Trim(),
+                            request.Password);
+                    }
+                }
 
                 if (loginResult == null || string.IsNullOrWhiteSpace(loginResult.MrNo))
                 {
                     return Unauthorized(new
                     {
                         success = false,
-                        message = "Invalid contact number or password",
+                        message = "Invalid MR number / mobile number or password",
                     });
                 }
 
-                var contactNo = request.ContactNo.Trim();
+                // Prefer registered contact from DB so OTP SMS reaches the patient for MR login.
+                var contactNo = !string.IsNullOrWhiteSpace(loginResult.ContactNo)
+                    ? loginResult.ContactNo!.Trim()
+                    : (identifierKind == HospitalAuthPolicy.LoginIdentifierKind.Phone
+                        ? normalizedIdentifier
+                        : string.Empty);
+
+                if (string.IsNullOrWhiteSpace(contactNo)
+                    && identifierKind == HospitalAuthPolicy.LoginIdentifierKind.MrNumber)
+                {
+                    var resolved = await _authService.VerifyPhoneNo(null, loginResult.MrNo);
+                    contactNo = resolved.CONTACT_NO?.Trim() ?? string.Empty;
+                }
+
+                if (string.IsNullOrWhiteSpace(contactNo))
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = "No registered mobile number found for this patient. Contact the hospital.",
+                        errors = new[] { "No registered mobile number found for this patient." },
+                    });
+                }
+
                 var deviceInstallId = request.DeviceInstallId?.Trim() ?? string.Empty;
 
                 if (string.IsNullOrWhiteSpace(deviceInstallId))
@@ -287,7 +342,7 @@ namespace HospitalMobileAPPApi.Controllers
                     AbsoluteExpirationRelativeToNow = expiry,
                 });
 
-                var message = $"Your OTP is {otp}. It will expire in {_authSettings.OtpExpiryMinutes} minutes.";
+                var message = BuildOtpSmsMessage(otp);
                 var smsSent = await SendSmsAsync(phoneNumber, message);
 
                 if (!smsSent)
@@ -399,7 +454,7 @@ namespace HospitalMobileAPPApi.Controllers
                     AbsoluteExpirationRelativeToNow = expiry,
                 });
 
-                var message = $"Your BTIH registration OTP is {otp}. It will expire in {_authSettings.OtpExpiryMinutes} minutes.";
+                var message = BuildOtpSmsMessage(otp, purpose: "registration");
                 var smsSent = await SendSmsAsync(phoneNumber, message);
 
                 if (!smsSent)
@@ -508,12 +563,16 @@ namespace HospitalMobileAPPApi.Controllers
         {
             if (string.IsNullOrWhiteSpace(request.MrNo) || string.IsNullOrWhiteSpace(request.PatientPassword))
             {
-                return BadRequest(new { message = "MR number and new password are required" });
+                return BadRequest(HospitalAuthPolicy.ValidationFailure(
+                    "MR number and new password are required",
+                    "MR number and new password are required"));
             }
 
-            if (request.PatientPassword.Length < 6)
+            if (!HospitalAuthPolicy.TryValidateNewPassword(request.PatientPassword, out var passwordError))
             {
-                return BadRequest(new { message = "Password must be at least 6 characters" });
+                return BadRequest(HospitalAuthPolicy.ValidationFailure(
+                    passwordError ?? "Password does not meet hospital policy",
+                    passwordError ?? "Password does not meet hospital policy"));
             }
 
             var cacheKey = $"{PasswordResetCachePrefix}{request.MrNo.Trim()}";
@@ -521,14 +580,21 @@ namespace HospitalMobileAPPApi.Controllers
             {
                 return Unauthorized(new
                 {
+                    success = false,
                     message = "Password reset is not authorized. Verify OTP first.",
+                    errors = new[] { "Password reset is not authorized. Verify OTP first." },
                 });
             }
 
             var updated = await _patientService.UpdatePatientPassword(request.MrNo.Trim(), request.PatientPassword);
             if (!updated)
             {
-                return BadRequest(new { message = "Password update failed" });
+                return BadRequest(new
+                {
+                    success = false,
+                    message = "Password update failed",
+                    errors = new[] { "Password update failed" },
+                });
             }
 
             _cache.Remove(cacheKey);
@@ -542,7 +608,7 @@ namespace HospitalMobileAPPApi.Controllers
                 _logger.LogWarning(ex, "Failed to revoke trusted devices after password reset for MR {MrNo}", request.MrNo);
             }
 
-            return Ok(new { message = "Password updated successfully" });
+            return Ok(new { success = true, message = "Password updated successfully" });
         }
 
         /// <summary>
@@ -557,20 +623,19 @@ namespace HospitalMobileAPPApi.Controllers
                 string.IsNullOrWhiteSpace(request.CurrentPassword) ||
                 string.IsNullOrWhiteSpace(request.NewPassword))
             {
-                return BadRequest(new
-                {
-                    success = false,
-                    message = "MR number, current password, and new password are required",
-                });
+                return BadRequest(HospitalAuthPolicy.ValidationFailure(
+                    "MR number, current password, and new password are required",
+                    "MR number, current password, and new password are required"));
             }
 
-            if (request.NewPassword.Length < 6)
+            if (!HospitalAuthPolicy.TryValidateNewPassword(
+                    request.NewPassword,
+                    out var passwordError,
+                    currentPassword: request.CurrentPassword))
             {
-                return BadRequest(new
-                {
-                    success = false,
-                    message = "New password must be at least 6 characters",
-                });
+                return BadRequest(HospitalAuthPolicy.ValidationFailure(
+                    passwordError ?? "Password does not meet hospital policy",
+                    passwordError ?? "Password does not meet hospital policy"));
             }
 
             if (!PatientAuthorizationHelper.IsAuthorizedForMrNo(User, request.MrNo))
@@ -578,17 +643,25 @@ namespace HospitalMobileAPPApi.Controllers
                 return Forbid();
             }
 
-            var contactNo = request.ContactNo?.Trim();
-            if (string.IsNullOrWhiteSpace(contactNo))
+            if (!HospitalAuthPolicy.TryValidateLoginContact(request.ContactNo, out var contactNo, out var contactError))
             {
-                return BadRequest(new
-                {
-                    success = false,
-                    message = "Registered mobile number is required",
-                });
+                return BadRequest(HospitalAuthPolicy.ValidationFailure(
+                    contactError ?? "Registered mobile number is required",
+                    contactError ?? "Registered mobile number is required"));
             }
 
             var login = await _authService.LoginAsync(contactNo, request.CurrentPassword);
+            if (login == null ||
+                !string.Equals(login.MrNo?.Trim(), request.MrNo.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                // Retry with raw contact for legacy formats.
+                var rawContact = request.ContactNo?.Trim() ?? string.Empty;
+                if (!string.Equals(rawContact, contactNo, StringComparison.Ordinal))
+                {
+                    login = await _authService.LoginAsync(rawContact, request.CurrentPassword);
+                }
+            }
+
             if (login == null ||
                 !string.Equals(login.MrNo?.Trim(), request.MrNo.Trim(), StringComparison.OrdinalIgnoreCase))
             {
@@ -596,6 +669,7 @@ namespace HospitalMobileAPPApi.Controllers
                 {
                     success = false,
                     message = "Current password is incorrect",
+                    errors = new[] { "Current password is incorrect" },
                 });
             }
 
@@ -608,6 +682,7 @@ namespace HospitalMobileAPPApi.Controllers
                 {
                     success = false,
                     message = "Password update failed",
+                    errors = new[] { "Password update failed" },
                 });
             }
 
@@ -635,6 +710,7 @@ namespace HospitalMobileAPPApi.Controllers
                 expiresAt = tokenResult.ExpiresAt,
                 expiresInSeconds = tokenResult.ExpiresInSeconds,
                 mrNo,
+                contactNo,
                 firstName,
                 deviceTrustToken,
             };
@@ -744,8 +820,7 @@ namespace HospitalMobileAPPApi.Controllers
                 AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(_authSettings.LoginChallengeMinutes),
             });
 
-            var message =
-                $"Your BTIH login verification code is {otp}. It expires in {_authSettings.OtpExpiryMinutes} minutes.";
+            var message = BuildOtpSmsMessage(otp, purpose: "login");
             var smsTimeoutSeconds = _smsSettings.ReturnDebugOtpOnFailure
                 ? Math.Min(_smsSettings.TimeoutSeconds, 8)
                 : _smsSettings.TimeoutSeconds;
@@ -799,6 +874,32 @@ namespace HospitalMobileAPPApi.Controllers
         private static string GenerateOtp()
         {
             return Random.Shared.Next(100000, 999999).ToString();
+        }
+
+        /// Builds OTP SMS body for keyboard autofill + optional Android SMS Retriever.
+        /// Phrasing matches patterns Android/iOS use to offer the code above the keyboard.
+        private string BuildOtpSmsMessage(string otp, string purpose = "login")
+        {
+            // Keep a clear 6-digit token; Autofill / Messages suggest this on the keyboard.
+            var body = purpose switch
+            {
+                "registration" =>
+                    $"{otp} is your BTIH registration verification code. Do not share it. Valid for {_authSettings.OtpExpiryMinutes} minutes.",
+                "login" =>
+                    $"{otp} is your BTIH login verification code. Do not share it. Valid for {_authSettings.OtpExpiryMinutes} minutes.",
+                _ =>
+                    $"{otp} is your BTIH verification code. Do not share it. Valid for {_authSettings.OtpExpiryMinutes} minutes.",
+            };
+
+            var hash = _smsSettings.AndroidAppHash?.Trim();
+            if (string.IsNullOrWhiteSpace(hash))
+            {
+                return body;
+            }
+
+            // Android SMS Retriever API: message must end with the 11-char app hash.
+            // Leading <#> improves compatibility with older Retriever clients.
+            return $"<#> {body}\n{hash}";
         }
 
         private Task<bool> SendSmsAsync(string number, string message)

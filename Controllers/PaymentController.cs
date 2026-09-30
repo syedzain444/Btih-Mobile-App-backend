@@ -15,7 +15,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         public PaymentController(IPaymentService paymentService) => _paymentService = paymentService;
 
-        /// <summary>Create a payment intent and checkout URL for an invoice.</summary>
+        /// <summary>Create a payment intent, checkout URL, and payment QR (with appointment details when available).</summary>
         [HttpPost("initiate")]
         [Authorize(Policy = AuthorizationPolicies.PatientOnly)]
         public async Task<IActionResult> Initiate([FromBody] CreatePaymentRequest request)
@@ -39,6 +39,35 @@ namespace HospitalMobileAPPApi.Controllers
             {
                 return BadRequest(new { success = false, message = ex.Message });
             }
+        }
+
+        /// <summary>
+        /// Resolve a payment QR token/payload. Returns appointment details bound to the payment.
+        /// Public so camera scanners / deep links can resolve without JWT.
+        /// </summary>
+        [HttpGet("qr/{token}")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ResolveQr(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return BadRequest(new { success = false, message = "QR token is required." });
+            }
+
+            var resolved = await _paymentService.ResolveQrAsync(token);
+            if (resolved == null)
+            {
+                return NotFound(new { success = false, message = "Payment QR not found or expired." });
+            }
+
+            return Ok(new
+            {
+                success = true,
+                message = resolved.Appointment != null
+                    ? "Appointment details resolved from payment QR."
+                    : "Payment QR resolved (no linked appointment).",
+                data = resolved,
+            });
         }
 
         /// <summary>Confirm payment after gateway redirect or mock testing.</summary>
@@ -79,7 +108,7 @@ namespace HospitalMobileAPPApi.Controllers
             return ok ? Ok(new { success = true }) : Unauthorized(new { success = false });
         }
 
-        /// <summary>Get payment intent status.</summary>
+        /// <summary>Get payment intent status (includes QR + appointment when available).</summary>
         [HttpGet("{paymentId:int}")]
         [Authorize(Policy = AuthorizationPolicies.PatientOnly)]
         public async Task<IActionResult> GetPayment(int paymentId, [FromQuery] string mrNo)

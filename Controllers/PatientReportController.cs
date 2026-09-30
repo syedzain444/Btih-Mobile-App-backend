@@ -24,6 +24,7 @@ public class PatientReportController : ControllerBase
     private readonly IReportDataService _reportDataService;
     private readonly IReportPdfService _reportPdfService;
     private readonly IReportBrandingProvider _brandingProvider;
+    private readonly IReportPdfResultCache _pdfCache;
     private readonly IConfiguration _configuration;
 
     public PatientReportController(
@@ -32,7 +33,8 @@ public class PatientReportController : ControllerBase
         IBillingService billingService,
         IReportDataService reportDataService,
         IReportPdfService reportPdfService,
-        IReportBrandingProvider brandingProvider)
+        IReportBrandingProvider brandingProvider,
+        IReportPdfResultCache pdfCache)
     {
         _configuration = configuration;
         _securitySettings = securitySettings.Value;
@@ -40,6 +42,7 @@ public class PatientReportController : ControllerBase
         _reportDataService = reportDataService;
         _reportPdfService = reportPdfService;
         _brandingProvider = brandingProvider;
+        _pdfCache = pdfCache;
     }
 
     [HttpGet("GenerateReport")]
@@ -50,6 +53,13 @@ public class PatientReportController : ControllerBase
 
         try
         {
+            var cacheKey = IReportPdfResultCache.BuildKey(rptId, reportName, parameters);
+            if (_pdfCache.TryGet(cacheKey, out var cachedPdf))
+            {
+                Response.Headers.CacheControl = "private, max-age=300";
+                return File(cachedPdf, "application/pdf", $"{reportName}_{parameters}.pdf");
+            }
+
             var reportConfig = _reportDataService.GetReportConfiguration(rptId);
             if (reportConfig.Rows.Count == 0)
                 return NotFound("Report configuration not found.");
@@ -58,7 +68,8 @@ public class PatientReportController : ControllerBase
             if (templateName is null)
                 return BadRequest(new { message = $"Report template '{reportName}' is not supported by the native PDF engine." });
 
-            var dataSets = _reportDataService.LoadReportDataSets(rptId, parameters);
+            // Reuse the already-loaded config — avoids a second Oracle round-trip.
+            var dataSets = _reportDataService.LoadReportDataSets(reportConfig, parameters);
             if (dataSets.Count == 0)
                 return NotFound("Report configuration not found.");
 
@@ -91,6 +102,8 @@ public class PatientReportController : ControllerBase
                 DataSets = dataSets,
             });
 
+            _pdfCache.Set(cacheKey, pdfBytes);
+            Response.Headers.CacheControl = "private, max-age=300";
             return File(pdfBytes, "application/pdf", $"{reportName}_{parameters}.pdf");
         }
         catch (Exception ex)
@@ -217,6 +230,13 @@ public class PatientReportController : ControllerBase
         DateTime? d2,
         string fallbackTemplate)
     {
+        var cacheKeyHint = IReportPdfResultCache.BuildKey(rptId, fallbackTemplate, param);
+        if (_pdfCache.TryGet(cacheKeyHint, out var earlyCached))
+        {
+            Response.Headers.CacheControl = "private, max-age=300";
+            return File(earlyCached, "application/pdf", $"{fallbackTemplate}.pdf");
+        }
+
         var connStr = _configuration.GetConnectionString("HMISConnection");
         using var con = new OracleConnection(connStr);
         con.Open();
@@ -234,6 +254,13 @@ public class PatientReportController : ControllerBase
         if (!ReportTemplateNames.IsSupported(templateName))
             return BadRequest(new { message = $"Report template '{templateName}' is not supported by the native PDF engine." });
 
+        var cacheKey = IReportPdfResultCache.BuildKey(rptId, rptName, param);
+        if (cacheKey != cacheKeyHint && _pdfCache.TryGet(cacheKey, out var cachedPdf))
+        {
+            Response.Headers.CacheControl = "private, max-age=300";
+            return File(cachedPdf, "application/pdf", $"{rptName}.pdf");
+        }
+
         var dataSets = _reportDataService.LoadConfiguredDataSets(con, config, param, d1, d2);
         var branding = _brandingProvider.Create(
             user,
@@ -250,6 +277,10 @@ public class PatientReportController : ControllerBase
             DataSets = dataSets,
         });
 
+        _pdfCache.Set(cacheKey, pdf);
+        if (cacheKey != cacheKeyHint)
+            _pdfCache.Set(cacheKeyHint, pdf);
+        Response.Headers.CacheControl = "private, max-age=300";
         return File(pdf, "application/pdf", $"{rptName}.pdf");
     }
 

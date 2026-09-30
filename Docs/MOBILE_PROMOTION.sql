@@ -59,6 +59,31 @@ END;
 COMMENT ON TABLE MOBILE_PROMOTION IS
     'Launch-screen promotions managed by admin panel and shown after splash in the mobile app.';
 
+-- How many active promotions the mobile app should show (admin-controlled).
+DECLARE
+  v_count NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO v_count FROM user_tables WHERE table_name = 'MOBILE_PROMOTION_SETTINGS';
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE '
+      CREATE TABLE MOBILE_PROMOTION_SETTINGS (
+          SETTINGS_ID    NUMBER        DEFAULT 1 NOT NULL,
+          DISPLAY_LIMIT  NUMBER        DEFAULT 5 NOT NULL,
+          UPDATED_AT     DATE          DEFAULT SYSDATE NOT NULL,
+          CONSTRAINT PK_MOBILE_PROMO_SETTINGS PRIMARY KEY (SETTINGS_ID),
+          CONSTRAINT CHK_MOBILE_PROMO_LIMIT CHECK (DISPLAY_LIMIT BETWEEN 1 AND 50)
+      )';
+  END IF;
+END;
+/
+
+MERGE INTO MOBILE_PROMOTION_SETTINGS t
+USING (SELECT 1 AS SETTINGS_ID FROM DUAL) s
+   ON (t.SETTINGS_ID = s.SETTINGS_ID)
+WHEN NOT MATCHED THEN
+  INSERT (SETTINGS_ID, DISPLAY_LIMIT, UPDATED_AT)
+  VALUES (1, 5, SYSDATE);
+
 SELECT COUNT(*) AS mobile_promotion_ready
 FROM user_tables
 WHERE table_name = 'MOBILE_PROMOTION';

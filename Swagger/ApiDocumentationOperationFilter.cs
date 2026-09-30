@@ -29,37 +29,51 @@ namespace HospitalMobileAPPApi.Swagger
 
             if (!string.IsNullOrWhiteSpace(doc.RequestExample))
             {
-                operation.RequestBody ??= new OpenApiRequestBody
+                try
                 {
-                    Required = true,
-                    Content = new Dictionary<string, OpenApiMediaType>(),
-                };
+                    operation.RequestBody ??= new OpenApiRequestBody
+                    {
+                        Required = true,
+                        Content = new Dictionary<string, OpenApiMediaType>(),
+                    };
 
-                if (!operation.RequestBody.Content.ContainsKey("application/json"))
-                {
-                    operation.RequestBody.Content["application/json"] = new OpenApiMediaType();
+                    if (!operation.RequestBody.Content.ContainsKey("application/json"))
+                    {
+                        operation.RequestBody.Content["application/json"] = new OpenApiMediaType();
+                    }
+
+                    operation.RequestBody.Content["application/json"].Example =
+                        OpenApiJsonHelper.CreateFromJson(doc.RequestExample);
                 }
-
-                operation.RequestBody.Content["application/json"].Example =
-                    OpenApiJsonHelper.CreateFromJson(doc.RequestExample);
+                catch
+                {
+                    // Invalid example JSON must never break /swagger/v1/swagger.json.
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(doc.ResponseExample))
             {
-                var response = operation.Responses.TryGetValue("200", out var okResponse)
-                    ? okResponse
-                    : new OpenApiResponse { Description = "Success" };
-
-                response.Content ??= new Dictionary<string, OpenApiMediaType>();
-                if (!response.Content.ContainsKey("application/json"))
+                try
                 {
-                    response.Content["application/json"] = new OpenApiMediaType();
+                    var response = operation.Responses.TryGetValue("200", out var okResponse)
+                        ? okResponse
+                        : new OpenApiResponse { Description = "Success" };
+
+                    response.Content ??= new Dictionary<string, OpenApiMediaType>();
+                    if (!response.Content.ContainsKey("application/json"))
+                    {
+                        response.Content["application/json"] = new OpenApiMediaType();
+                    }
+
+                    response.Content["application/json"].Example =
+                        OpenApiJsonHelper.CreateFromJson(doc.ResponseExample);
+
+                    operation.Responses["200"] = response;
                 }
-
-                response.Content["application/json"].Example =
-                    OpenApiJsonHelper.CreateFromJson(doc.ResponseExample);
-
-                operation.Responses["200"] = response;
+                catch
+                {
+                    // Invalid example JSON must never break /swagger/v1/swagger.json.
+                }
             }
         }
     }

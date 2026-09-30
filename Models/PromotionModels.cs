@@ -34,6 +34,12 @@ namespace HospitalMobileAPPApi.Models
         public DateTime? EndAt { get; set; }
     }
 
+    /// <summary>Admin request to set how many promotions appear in the app.</summary>
+    public class PromotionDisplayLimitRequest
+    {
+        public int DisplayLimit { get; set; } = 5;
+    }
+
     /// <summary>Multipart form fields from admin panel promotion upload.</summary>
     public class PromotionMultipartForm
     {

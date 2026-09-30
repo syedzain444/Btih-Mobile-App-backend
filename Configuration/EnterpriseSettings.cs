@@ -9,6 +9,14 @@ namespace HospitalMobileAPPApi.Configuration
         public string DefaultReturnUrl { get; set; } = "btihapp://payment/return";
         public int PaymentExpiryMinutes { get; set; } = 30;
         public bool AllowMockConfirm { get; set; } = true;
+
+        /// <summary>
+        /// Public API root used inside QR payloads so external scanners can resolve appointment details.
+        /// Example: http://172.20.8.36 or https://api.btkhospital.com
+        /// </summary>
+        public string PublicApiBaseUrl { get; set; } = string.Empty;
+
+        public bool EnablePaymentQr { get; set; } = true;
     }
 
     public class AdminSettings

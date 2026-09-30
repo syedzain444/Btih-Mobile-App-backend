@@ -12,6 +12,12 @@ namespace HospitalMobileAPPApi.Configuration
         /// Disable in production once SMS is confirmed working.
         /// </summary>
         public bool ReturnDebugOtpOnFailure { get; set; }
+
+        /// <summary>
+        /// 11-character Android SMS Retriever app hash (from sms_autofill getAppSignature).
+        /// When set, OTP SMS includes the hash so the app can auto-read the code.
+        /// </summary>
+        public string? AndroidAppHash { get; set; }
     }
 
     public class AuthSettings

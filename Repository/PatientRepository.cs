@@ -451,57 +451,211 @@ namespace HospitalMobileAPPApi.Repository
         //    return returnMsg;
         //}
 
-        public async Task<int> InsertAppointment(AppointmentModel model)
+        public async Task<AppointmentBookingResult> InsertAppointment(AppointmentModel model)
         {
             if (string.IsNullOrWhiteSpace(model.phoneNo))
             {
-                return 0;
+                return new AppointmentBookingResult
+                {
+                    ErrorMessage = "Phone number is required",
+                };
             }
 
             try
             {
                 var connStr = _configuration.GetConnectionString("HOS_WEB_MVC_LIVE");
+                if (string.IsNullOrWhiteSpace(connStr))
+                {
+                    return new AppointmentBookingResult
+                    {
+                        ErrorMessage = "Appointment database connection is not configured",
+                    };
+                }
 
-                using var conn = new OracleConnection(connStr);
+                await using var conn = new OracleConnection(connStr);
                 await conn.OpenAsync();
 
-                using var cmdInsert = new OracleCommand(@"
+                var departmentId = model.departmentId;
+                if (departmentId <= 0 && model.doctorId > 0)
+                {
+                    departmentId = await ResolveDoctorDepartmentIdAsync(conn, model.doctorId);
+                }
+
+                if (departmentId <= 0)
+                {
+                    return new AppointmentBookingResult
+                    {
+                        ErrorMessage = "Valid department is required for booking",
+                    };
+                }
+
+                if (model.doctorId <= 0)
+                {
+                    return new AppointmentBookingResult
+                    {
+                        ErrorMessage = "Valid doctor is required for booking",
+                    };
+                }
+
+                if (model.weekId <= 0)
+                {
+                    return new AppointmentBookingResult
+                    {
+                        ErrorMessage = "Valid schedule slot is required for booking",
+                    };
+                }
+
+                // STATUS is VARCHAR2(9) — keep within length; match existing rows style.
+                var status = string.IsNullOrWhiteSpace(model.status) ? "Pending" : model.status.Trim();
+                if (status.Length > 9)
+                {
+                    status = status[..9];
+                }
+
+                var purpose = model.purpose ?? string.Empty;
+                if (purpose.Length > 255)
+                {
+                    purpose = purpose[..255];
+                }
+
+                string? appointmentId = null;
+                var number = 0;
+                OracleException? lastUnique = null;
+
+                for (var attempt = 0; attempt < 2; attempt++)
+                {
+                    if (attempt == 1)
+                    {
+                        await SyncAppointmentSequenceAsync(conn);
+                    }
+
+                    appointmentId = (await AllocateAppointmentIdAsync(conn)).ToString();
+
+                    await using var cmdInsert = new OracleCommand(@"
             INSERT INTO APPOINTMENT (
-                NAME, PHONE, MRNUM, EMAIL, WEEK_ID, APPOINTMENTTIME, STATUS, DOCTOR_ID, DEPARTMENT_ID, PURPOSE, CREATED_AT, IS_ACTIVE, ENTRY_DATE
+                APPOINTMENT_ID, NAME, PHONE, MRNUM, EMAIL, WEEK_ID, APPOINTMENTTIME, STATUS,
+                DOCTOR_ID, DEPARTMENT_ID, PURPOSE, CREATED_AT, IS_ACTIVE, ENTRY_DATE
             ) VALUES (
-                :name, :phone, :mrno, :email, :week_id, :appointment_time, :status, :doctor_id, :department_id, :purpose, :created_at, :is_active, :entry_date
+                :appointment_id, :name, :phone, :mrno, :email, :week_id, :appointment_time, :status,
+                :doctor_id, :department_id, :purpose, :created_at, :is_active, :entry_date
             )", conn);
 
-                cmdInsert.BindByName = true;
+                    cmdInsert.BindByName = true;
+                    cmdInsert.Parameters.Add("appointment_id", OracleDbType.Int64).Value = Convert.ToInt64(appointmentId);
+                    cmdInsert.Parameters.Add("name", OracleDbType.Varchar2).Value = model.name ?? string.Empty;
+                    cmdInsert.Parameters.Add("phone", OracleDbType.Varchar2).Value = model.phoneNo;
+                    cmdInsert.Parameters.Add("mrno", OracleDbType.Varchar2).Value =
+                        string.IsNullOrWhiteSpace(model.mrno) ? (object)DBNull.Value : model.mrno.Trim();
+                    cmdInsert.Parameters.Add("email", OracleDbType.Varchar2).Value =
+                        string.IsNullOrWhiteSpace(model.email) ? (object)DBNull.Value : model.email.Trim();
+                    cmdInsert.Parameters.Add("week_id", OracleDbType.Int32).Value = model.weekId;
+                    cmdInsert.Parameters.Add("appointment_time", OracleDbType.Varchar2).Value =
+                        model.appointment_time ?? string.Empty;
+                    cmdInsert.Parameters.Add("status", OracleDbType.Varchar2).Value = status;
+                    cmdInsert.Parameters.Add("doctor_id", OracleDbType.Int32).Value = model.doctorId;
+                    cmdInsert.Parameters.Add("department_id", OracleDbType.Int32).Value = departmentId;
+                    cmdInsert.Parameters.Add("purpose", OracleDbType.Varchar2).Value = purpose;
+                    cmdInsert.Parameters.Add("created_at", OracleDbType.Date).Value = model.createdAt ?? DateTime.Now;
+                    cmdInsert.Parameters.Add("is_active", OracleDbType.Varchar2).Value =
+                        string.IsNullOrWhiteSpace(model.isActive) ? "Y" : model.isActive.Trim()[..1].ToUpperInvariant();
+                    cmdInsert.Parameters.Add("entry_date", OracleDbType.Date).Value = model.entryDate ?? DateTime.Now;
 
-                cmdInsert.Parameters.Add("name", OracleDbType.Varchar2).Value = model.name ?? string.Empty;
-                cmdInsert.Parameters.Add("phone", OracleDbType.Varchar2).Value = model.phoneNo;
-                cmdInsert.Parameters.Add("mrno", OracleDbType.Varchar2).Value = string.IsNullOrWhiteSpace(model.mrno) ? (object)DBNull.Value : model.mrno;
-                cmdInsert.Parameters.Add("email", OracleDbType.Varchar2).Value = model.email ?? (object)DBNull.Value;
-                cmdInsert.Parameters.Add("week_id", OracleDbType.Int32).Value = model.weekId;
-                cmdInsert.Parameters.Add("appointment_time", OracleDbType.Varchar2).Value = model.appointment_time;
-                cmdInsert.Parameters.Add("status", OracleDbType.Varchar2).Value = model.status;
-                cmdInsert.Parameters.Add("doctor_id", OracleDbType.Int32).Value = model.doctorId;
-                cmdInsert.Parameters.Add("department_id", OracleDbType.Int32).Value = model.departmentId;
-                cmdInsert.Parameters.Add("purpose", OracleDbType.Varchar2).Value = model.purpose;
-                cmdInsert.Parameters.Add("created_at", OracleDbType.Date).Value = model.createdAt ?? DateTime.Now;
-                cmdInsert.Parameters.Add("is_active", OracleDbType.Char).Value = model.isActive ?? "Y";
-                cmdInsert.Parameters.Add("entry_date", OracleDbType.Date).Value = model.entryDate ?? DateTime.Now;
+                    try
+                    {
+                        number = await cmdInsert.ExecuteNonQueryAsync();
+                        lastUnique = null;
+                        break;
+                    }
+                    catch (OracleException ox) when (ox.Number == 1 && attempt == 0)
+                    {
+                        // Sequence lagged behind MAX(APPOINTMENT_ID) — sync and retry once.
+                        lastUnique = ox;
+                    }
+                }
 
-                var number = await cmdInsert.ExecuteNonQueryAsync();
-                if (number > 0)
+                if (number <= 0)
+                {
+                    return new AppointmentBookingResult
+                    {
+                        ErrorMessage = lastUnique?.Message ?? "Insertion failed",
+                    };
+                }
+
+                try
                 {
                     const string sms = "Your appointment request has been received. We will update you later.";
                     await SendSms(model.phoneNo, sms);
                 }
+                catch
+                {
+                    // Booking succeeded; SMS is best-effort.
+                }
 
-                return number;
+                return new AppointmentBookingResult
+                {
+                    RowsAffected = number,
+                    AppointmentId = appointmentId,
+                };
             }
-            catch
+            catch (OracleException ox)
+            {
+                return new AppointmentBookingResult
+                {
+                    ErrorMessage = ox.Message,
+                };
+            }
+            catch (Exception ex)
+            {
+                return new AppointmentBookingResult
+                {
+                    ErrorMessage = ex.Message,
+                };
+            }
+        }
+
+        private static async Task<long> AllocateAppointmentIdAsync(OracleConnection conn)
+        {
+            await using var cmd = new OracleCommand(
+                "SELECT APPOINTMENT_SEQ.NEXTVAL FROM DUAL", conn);
+            var value = await cmd.ExecuteScalarAsync();
+            return Convert.ToInt64(value);
+        }
+
+        private static async Task SyncAppointmentSequenceAsync(OracleConnection conn)
+        {
+            await using var cmd = new OracleCommand(@"
+DECLARE
+  v_max  NUMBER;
+  v_next NUMBER;
+  v_diff NUMBER;
+BEGIN
+  SELECT NVL(MAX(APPOINTMENT_ID), 0) INTO v_max FROM APPOINTMENT;
+  SELECT APPOINTMENT_SEQ.NEXTVAL INTO v_next FROM DUAL;
+  v_diff := (v_max + 1) - v_next;
+  IF v_diff > 0 THEN
+    EXECUTE IMMEDIATE 'ALTER SEQUENCE APPOINTMENT_SEQ INCREMENT BY ' || v_diff;
+    SELECT APPOINTMENT_SEQ.NEXTVAL INTO v_next FROM DUAL;
+    EXECUTE IMMEDIATE 'ALTER SEQUENCE APPOINTMENT_SEQ INCREMENT BY 1';
+  END IF;
+END;", conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        private static async Task<int> ResolveDoctorDepartmentIdAsync(OracleConnection conn, int doctorId)
+        {
+            await using var cmd = new OracleCommand(
+                "SELECT DEPARTMENT_ID FROM DOCTOR WHERE DOCTOR_ID = :doctor_id", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add("doctor_id", OracleDbType.Int32).Value = doctorId;
+            var value = await cmd.ExecuteScalarAsync();
+            if (value == null || value == DBNull.Value)
             {
                 return 0;
             }
+
+            return Convert.ToInt32(value);
         }
+
 
         public async Task<bool> UpdatePatientProfileAsync(UpdatePatientProfileRequest request)
         {

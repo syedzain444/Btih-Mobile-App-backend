@@ -17,6 +17,10 @@ public interface IReportBrandingProvider
 public sealed class ReportBrandingProvider : IReportBrandingProvider
 {
     private readonly IWebHostEnvironment _env;
+    private readonly object _imageLock = new();
+    private byte[]? _logo;
+    private byte[]? _bg;
+    private bool _imagesLoaded;
 
     public ReportBrandingProvider(IWebHostEnvironment env)
     {
@@ -31,11 +35,7 @@ public sealed class ReportBrandingProvider : IReportBrandingProvider
         string? parameter = null,
         string? patientName = null)
     {
-        var logoPath = Path.Combine(_env.ContentRootPath, "Images", "Logo.jpg");
-        var bgPath = Path.Combine(_env.ContentRootPath, "Images", "BG.jpg");
-
-        byte[]? logo = File.Exists(logoPath) ? File.ReadAllBytes(logoPath) : null;
-        byte[]? bg = File.Exists(bgPath) ? File.ReadAllBytes(bgPath) : null;
+        EnsureImagesLoaded();
 
         var normalizedName = ReportTemplateNames.Normalize(reportName);
         var showQr = normalizedName is ReportTemplateNames.Lab
@@ -54,11 +54,25 @@ public sealed class ReportBrandingProvider : IReportBrandingProvider
         {
             PrintedBy = printedBy,
             PrintedVia = printedVia,
-            LogoImage = logo,
-            BackgroundImage = bg,
+            LogoImage = _logo,
+            BackgroundImage = _bg,
             ShowQrCode = showQr && qr != null,
             QrCodeImage = qr,
         };
+    }
+
+    private void EnsureImagesLoaded()
+    {
+        if (_imagesLoaded) return;
+        lock (_imageLock)
+        {
+            if (_imagesLoaded) return;
+            var logoPath = Path.Combine(_env.ContentRootPath, "Images", "Logo.jpg");
+            var bgPath = Path.Combine(_env.ContentRootPath, "Images", "BG.jpg");
+            _logo = File.Exists(logoPath) ? File.ReadAllBytes(logoPath) : null;
+            _bg = File.Exists(bgPath) ? File.ReadAllBytes(bgPath) : null;
+            _imagesLoaded = true;
+        }
     }
 
     private static byte[] GenerateQrCode(string text)

@@ -14,23 +14,30 @@ namespace HospitalMobileAPPApi.Controllers
     public class PromotionController : ControllerBase
     {
         private readonly IPromotionService _promotionService;
+        private readonly IMobilePortalSchemaService _schemaService;
 
-        public PromotionController(IPromotionService promotionService)
+        public PromotionController(
+            IPromotionService promotionService,
+            IMobilePortalSchemaService schemaService)
         {
             _promotionService = promotionService;
+            _schemaService = schemaService;
         }
 
-        /// <summary>Active promotions for splash → welcome carousel (sorted).</summary>
+        /// <summary>Active promotions for splash → welcome carousel (sorted, capped by admin display limit).</summary>
         [HttpGet("active")]
         public async Task<IActionResult> GetActive()
         {
             try
             {
+                await _schemaService.EnsurePromotionSchemaAsync();
                 var items = await _promotionService.GetActiveAsync();
+                var displayLimit = await _promotionService.GetDisplayLimitAsync();
                 return Ok(new
                 {
                     success = true,
                     count = items.Count,
+                    displayLimit,
                     data = items.Select(MapPublic),
                 });
             }

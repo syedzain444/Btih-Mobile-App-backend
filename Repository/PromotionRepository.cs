@@ -6,11 +6,13 @@ namespace HospitalMobileAPPApi.Repository
     public interface IPromotionRepository
     {
         Task<List<MobilePromotionRecord>> GetAllAsync();
-        Task<List<MobilePromotionRecord>> GetActiveAsync();
+        Task<List<MobilePromotionRecord>> GetActiveAsync(int? displayLimit = null);
         Task<MobilePromotionRecord?> GetByIdAsync(int promotionId);
         Task<MobilePromotionRecord> InsertAsync(MobilePromotionRecord record);
         Task<bool> UpdateAsync(MobilePromotionRecord record);
         Task<bool> DeleteAsync(int promotionId);
+        Task<int> GetDisplayLimitAsync();
+        Task SetDisplayLimitAsync(int displayLimit);
     }
 
     public class PromotionRepository : IPromotionRepository
@@ -44,20 +46,28 @@ namespace HospitalMobileAPPApi.Repository
             return result;
         }
 
-        public async Task<List<MobilePromotionRecord>> GetActiveAsync()
+        public async Task<List<MobilePromotionRecord>> GetActiveAsync(int? displayLimit = null)
         {
             var result = new List<MobilePromotionRecord>();
             var connStr = _configuration.GetConnectionString("HMISConnection");
+            var limit = displayLimit ?? await GetDisplayLimitAsync();
+            if (limit < 1) limit = 1;
+            if (limit > 50) limit = 50;
 
             await using var conn = new OracleConnection(connStr);
             await using var cmd = new OracleCommand(@"
-                SELECT PROMOTION_ID, TITLE, IMAGE_URL, SORT_ORDER, DURATION_SECONDS,
-                       IS_ACTIVE, START_AT, END_AT, CREATED_AT, UPDATED_AT
-                FROM MOBILE_PROMOTION
-                WHERE IS_ACTIVE = 'Y'
-                  AND (START_AT IS NULL OR START_AT <= SYSDATE)
-                  AND (END_AT IS NULL OR END_AT >= SYSDATE)
-                ORDER BY SORT_ORDER ASC, PROMOTION_ID DESC", conn);
+                SELECT * FROM (
+                    SELECT PROMOTION_ID, TITLE, IMAGE_URL, SORT_ORDER, DURATION_SECONDS,
+                           IS_ACTIVE, START_AT, END_AT, CREATED_AT, UPDATED_AT
+                    FROM MOBILE_PROMOTION
+                    WHERE IS_ACTIVE = 'Y'
+                      AND (START_AT IS NULL OR START_AT <= SYSDATE)
+                      AND (END_AT IS NULL OR END_AT >= SYSDATE)
+                    ORDER BY SORT_ORDER ASC, PROMOTION_ID DESC
+                ) WHERE ROWNUM <= :lim", conn);
+
+            cmd.BindByName = true;
+            cmd.Parameters.Add("lim", OracleDbType.Int32).Value = limit;
 
             await conn.OpenAsync();
             await using var reader = await cmd.ExecuteReaderAsync();
@@ -67,6 +77,47 @@ namespace HospitalMobileAPPApi.Repository
             }
 
             return result;
+        }
+
+        public async Task<int> GetDisplayLimitAsync()
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT DISPLAY_LIMIT FROM MOBILE_PROMOTION_SETTINGS WHERE SETTINGS_ID = 1", conn);
+
+            await conn.OpenAsync();
+            var scalar = await cmd.ExecuteScalarAsync();
+            if (scalar == null || scalar == DBNull.Value)
+            {
+                return 5;
+            }
+
+            var limit = Convert.ToInt32(scalar);
+            return limit < 1 ? 5 : Math.Min(limit, 50);
+        }
+
+        public async Task SetDisplayLimitAsync(int displayLimit)
+        {
+            var limit = Math.Clamp(displayLimit, 1, 50);
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await conn.OpenAsync();
+
+            await using var cmd = new OracleCommand(@"
+                MERGE INTO MOBILE_PROMOTION_SETTINGS t
+                USING (SELECT 1 AS SETTINGS_ID FROM DUAL) s
+                   ON (t.SETTINGS_ID = s.SETTINGS_ID)
+                WHEN MATCHED THEN
+                  UPDATE SET DISPLAY_LIMIT = :lim, UPDATED_AT = SYSDATE
+                WHEN NOT MATCHED THEN
+                  INSERT (SETTINGS_ID, DISPLAY_LIMIT, UPDATED_AT)
+                  VALUES (1, :lim_ins, SYSDATE)", conn);
+
+            cmd.BindByName = true;
+            cmd.Parameters.Add("lim", OracleDbType.Int32).Value = limit;
+            cmd.Parameters.Add("lim_ins", OracleDbType.Int32).Value = limit;
+            await cmd.ExecuteNonQueryAsync();
         }
 
         public async Task<MobilePromotionRecord?> GetByIdAsync(int promotionId)

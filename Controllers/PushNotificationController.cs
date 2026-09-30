@@ -14,10 +14,14 @@ namespace HospitalMobileAPPApi.Controllers
     public class PushNotificationController : ControllerBase
     {
         private readonly IPushNotificationService _pushNotificationService;
+        private readonly IAppointmentPrepService _appointmentPrepService;
 
-        public PushNotificationController(IPushNotificationService pushNotificationService)
+        public PushNotificationController(
+            IPushNotificationService pushNotificationService,
+            IAppointmentPrepService appointmentPrepService)
         {
             _pushNotificationService = pushNotificationService;
+            _appointmentPrepService = appointmentPrepService;
         }
 
         [HttpPost("register")]
@@ -126,6 +130,49 @@ namespace HospitalMobileAPPApi.Controllers
                 message = "Appointment reminder processed",
                 result,
             });
+        }
+
+        /// <summary>
+        /// Send or simulate a Radiology/Gastro fasting preparation reminder (REQ-2026-009).
+        /// Staff/Admin can force-send; patients may only target their own MR No.
+        /// </summary>
+        [HttpPost("appointment-fasting-reminder")]
+        public async Task<IActionResult> SendAppointmentFastingReminder([FromBody] SendFastingReminderRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.MrNo))
+            {
+                return BadRequest(new { success = false, message = "MR No is required" });
+            }
+
+            var isStaff = User.IsInRole(AppRoles.Admin) || User.IsInRole(AppRoles.Staff);
+            if (!isStaff && !PatientAuthorizationHelper.IsAuthorizedForMrNo(User, request.MrNo))
+            {
+                return Forbid();
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.AppointmentId))
+            {
+                await _appointmentPrepService.ScheduleForAppointmentAsync(request.AppointmentId.Trim());
+            }
+
+            var result = await _appointmentPrepService.SendImmediateAsync(request);
+            return Ok(new
+            {
+                success = result.Persisted || result.Sent > 0,
+                message = "Fasting / preparation reminder processed",
+                prepKind = request.PrepKind,
+                result,
+            });
+        }
+
+        /// <summary>Staff/Admin: run discover + due send cycle for prep alerts (testing / ops).</summary>
+        [HttpPost("appointment-prep/run-cycle")]
+        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        public async Task<IActionResult> RunAppointmentPrepCycle(CancellationToken cancellationToken)
+        {
+            await _appointmentPrepService.EnsureSchemaAsync(cancellationToken);
+            await _appointmentPrepService.QueueCycleAsync(cancellationToken);
+            return Ok(new { success = true, message = "Appointment prep cycle completed." });
         }
 
         [HttpPost("report-ready")]

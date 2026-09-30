@@ -1,3 +1,4 @@
+using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Repository;
 
 namespace HospitalMobileAPPApi.Services
@@ -5,11 +6,8 @@ namespace HospitalMobileAPPApi.Services
     public interface IPatientProfilePhotoService
     {
         Task<string?> GetImagePathAsync(string mrNo);
-        Task<string> SavePhotoAsync(
-            string mrNo,
-            IFormFile file,
-            string webRootPath);
-        Task<bool> RemovePhotoAsync(string mrNo, string webRootPath);
+        Task<string> SavePhotoAsync(string mrNo, IFormFile file);
+        Task<bool> RemovePhotoAsync(string mrNo);
     }
 
     public class PatientProfilePhotoService : IPatientProfilePhotoService
@@ -20,16 +18,24 @@ namespace HospitalMobileAPPApi.Services
         };
 
         private const long MaxBytes = 5 * 1024 * 1024;
-        private const string UploadSubPath = "uploads/profiles";
 
         private readonly IPatientProfilePhotoRepository _repository;
+        private readonly IMobilePortalSchemaService _schemaService;
+        private readonly IWebHostEnvironment _environment;
+        private readonly IConfiguration _configuration;
         private readonly ILogger<PatientProfilePhotoService> _logger;
 
         public PatientProfilePhotoService(
             IPatientProfilePhotoRepository repository,
+            IMobilePortalSchemaService schemaService,
+            IWebHostEnvironment environment,
+            IConfiguration configuration,
             ILogger<PatientProfilePhotoService> logger)
         {
             _repository = repository;
+            _schemaService = schemaService;
+            _environment = environment;
+            _configuration = configuration;
             _logger = logger;
         }
 
@@ -38,10 +44,7 @@ namespace HospitalMobileAPPApi.Services
             return _repository.GetImagePathAsync(mrNo);
         }
 
-        public async Task<string> SavePhotoAsync(
-            string mrNo,
-            IFormFile file,
-            string webRootPath)
+        public async Task<string> SavePhotoAsync(string mrNo, IFormFile file)
         {
             if (file.Length <= 0)
             {
@@ -69,49 +72,109 @@ namespace HospitalMobileAPPApi.Services
                 throw new InvalidOperationException("Only JPG, PNG, or WEBP photos are allowed");
             }
 
+            await _schemaService.EnsureProfilePhotoSchemaAsync();
+
+            var storageRoot = ProfilePhotoStorage.EnsureRoot(_configuration, _environment);
             var previousPath = await _repository.GetImagePathAsync(mrNo);
 
             var safeMr = mrNo.Replace('/', '_').Replace('\\', '_').Trim();
-            var folder = Path.Combine(webRootPath, UploadSubPath, safeMr);
+            if (string.IsNullOrWhiteSpace(safeMr))
+            {
+                throw new InvalidOperationException("Invalid MR number");
+            }
+
+            var folder = Path.Combine(storageRoot, safeMr);
             Directory.CreateDirectory(folder);
 
             var storedName = $"{Guid.NewGuid():N}{extension}";
             var physicalPath = Path.Combine(folder, storedName);
-            await using (var stream = File.Create(physicalPath))
+
+            try
             {
-                await file.CopyToAsync(stream);
+                await using (var stream = new FileStream(
+                    physicalPath,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    64 * 1024,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan))
+                {
+                    await file.CopyToAsync(stream);
+                    await stream.FlushAsync();
+                }
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogError(ex, "Access denied writing profile photo to {Path}", physicalPath);
+                throw new InvalidOperationException(
+                    "Server cannot write profile photos. Ask IT to grant modify rights on the profile photo folder.",
+                    ex);
             }
 
-            var relativePath = $"{UploadSubPath}/{safeMr}/{storedName}".Replace('\\', '/');
-            await _repository.UpsertAsync(mrNo, relativePath, file.ContentType, file.Length);
+            if (!File.Exists(physicalPath) || new FileInfo(physicalPath).Length <= 0)
+            {
+                throw new InvalidOperationException("Photo file could not be written to disk");
+            }
 
-            TryDeleteRelativeFile(webRootPath, previousPath);
+            var relativePath = $"{ProfilePhotoStorage.RelativePrefix}/{safeMr}/{storedName}"
+                .Replace('\\', '/');
+
+            try
+            {
+                await _repository.UpsertAsync(mrNo, relativePath, file.ContentType, file.Length);
+            }
+            catch (Exception ex)
+            {
+                TryDeletePhysical(physicalPath);
+                _logger.LogError(ex, "Failed to persist profile photo metadata for {MrNo}", mrNo);
+                throw new InvalidOperationException(
+                    "Could not save profile photo metadata. Ensure PATIENT_PROFILE_PHOTO is installed.",
+                    ex);
+            }
+
+            TryDeleteRelativeFile(previousPath);
             return $"/{relativePath}";
         }
 
-        public async Task<bool> RemovePhotoAsync(string mrNo, string webRootPath)
+        public async Task<bool> RemovePhotoAsync(string mrNo)
         {
+            await _schemaService.EnsureProfilePhotoSchemaAsync();
             var previousPath = await _repository.GetImagePathAsync(mrNo);
             var cleared = await _repository.ClearAsync(mrNo);
             if (cleared)
             {
-                TryDeleteRelativeFile(webRootPath, previousPath);
+                TryDeleteRelativeFile(previousPath);
             }
 
             return cleared;
         }
 
-        private void TryDeleteRelativeFile(string webRootPath, string? relativePath)
+        private static void TryDeletePhysical(string path)
         {
-            if (string.IsNullOrWhiteSpace(relativePath))
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch
+            {
+                // ignore cleanup failures
+            }
+        }
+
+        private void TryDeleteRelativeFile(string? relativePath)
+        {
+            var storageRoot = ProfilePhotoStorage.GetRoot(_configuration, _environment);
+            var fullPath = ProfilePhotoStorage.ResolvePhysicalPath(
+                relativePath,
+                storageRoot,
+                _environment);
+            if (string.IsNullOrWhiteSpace(fullPath))
             {
                 return;
             }
 
             try
             {
-                var normalized = relativePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                var fullPath = Path.Combine(webRootPath, normalized);
                 if (File.Exists(fullPath))
                 {
                     File.Delete(fullPath);

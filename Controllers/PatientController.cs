@@ -152,17 +152,27 @@ namespace HospitalMobileAPPApi.Controllers
                 return BadRequest(new { message = "Phone number is required" });
             }
 
-            var rowsAffected = await _patService.InsertAppointment(model);
+            var result = await _patService.InsertAppointment(model);
 
-            if (rowsAffected == 0)
+            if (result.RowsAffected == 0)
             {
-                return BadRequest(new { message = "Insertion failed" });
+                return BadRequest(new
+                {
+                    message = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                        ? "Insertion failed"
+                        : result.ErrorMessage,
+                });
             }
 
             return Ok(new
             {
                 message = "Appointment requested successfully",
-                rowsAffected,
+                rowsAffected = result.RowsAffected,
+                appointmentId = result.AppointmentId,
+                confirmationQr = result.ConfirmationQr,
+                pdfUrl = string.IsNullOrWhiteSpace(result.AppointmentId)
+                    ? null
+                    : $"/api/AppointmentConfirmation/{result.AppointmentId}/pdf",
             });
         }
 
@@ -235,10 +245,12 @@ namespace HospitalMobileAPPApi.Controllers
         }
 
         [HttpPost("profile/photo")]
+        [Consumes("multipart/form-data")]
         [RequestSizeLimit(6 * 1024 * 1024)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 6 * 1024 * 1024)]
         public async Task<IActionResult> UploadProfilePhoto(
             [FromQuery] string mrNo,
-            IFormFile file)
+            IFormFile? file)
         {
             if (string.IsNullOrWhiteSpace(mrNo))
             {
@@ -250,6 +262,11 @@ namespace HospitalMobileAPPApi.Controllers
                 return Forbid();
             }
 
+            // Some clients send the field as "photo" — accept common aliases.
+            file ??= Request.Form.Files.GetFile("file")
+                     ?? Request.Form.Files.GetFile("photo")
+                     ?? Request.Form.Files.FirstOrDefault();
+
             if (file == null || file.Length == 0)
             {
                 return BadRequest(new { success = false, message = "Photo file is required" });
@@ -257,9 +274,7 @@ namespace HospitalMobileAPPApi.Controllers
 
             try
             {
-                var webRoot = _environment.WebRootPath
-                    ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
-                var imageUrl = await _profilePhotoService.SavePhotoAsync(mrNo, file, webRoot);
+                var imageUrl = await _profilePhotoService.SavePhotoAsync(mrNo, file);
                 return Ok(new
                 {
                     success = true,
@@ -274,7 +289,12 @@ namespace HospitalMobileAPPApi.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to upload profile photo for {MrNo}", mrNo);
-                return StatusCode(500, new { success = false, message = "Could not save profile photo" });
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Could not save profile photo",
+                    detail = ex.InnerException?.Message ?? ex.Message,
+                });
             }
         }
 
@@ -293,13 +313,11 @@ namespace HospitalMobileAPPApi.Controllers
 
             try
             {
-                var webRoot = _environment.WebRootPath
-                    ?? Path.Combine(_environment.ContentRootPath, "wwwroot");
-                await _profilePhotoService.RemovePhotoAsync(mrNo, webRoot);
+                var removed = await _profilePhotoService.RemovePhotoAsync(mrNo);
                 return Ok(new
                 {
-                    success = true,
-                    message = "Profile photo removed",
+                    success = removed,
+                    message = removed ? "Profile photo removed" : "No photo to remove",
                     profileImageUrl = (string?)null,
                 });
             }
@@ -340,9 +358,11 @@ namespace HospitalMobileAPPApi.Controllers
                 return BadRequest(new { message = "MR number and new password are required" });
             }
 
-            if (patientPassword.Length < 6)
+            if (!HospitalAuthPolicy.TryValidateNewPassword(patientPassword, out var passwordError))
             {
-                return BadRequest(new { message = "Password must be at least 6 characters" });
+                return BadRequest(HospitalAuthPolicy.ValidationFailure(
+                    passwordError ?? "Password does not meet hospital policy",
+                    passwordError ?? "Password does not meet hospital policy"));
             }
 
             var cacheKey = $"{PasswordResetCachePrefix}{mrno.Trim()}";

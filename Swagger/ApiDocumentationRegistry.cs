@@ -6,9 +6,12 @@ namespace HospitalMobileAPPApi.Swagger
             new Dictionary<string, ApiDocEntry>(StringComparer.Ordinal)
             {
                 ["Auth_Login"] = new(
-                    summary: "Patient login (hybrid trusted device)",
+                    summary: "Patient login (MR or phone + trusted device)",
                     description: """
-                        Authenticates a patient using contact number and password.
+                        Authenticates a patient using **MR number or mobile number** plus password (REQ-2026-017 / TC-017).
+                        `contactNo` accepts either identifier (e.g. `010-002-152` or `03001234567`).
+                        Wrong identifiers or passwords are rejected with a clear error.
+                        When OTP is required, SMS is always sent to the registered mobile linked to the patient.
 
                         **Trusted device:** If `deviceInstallId` + `deviceTrustToken` match a stored trusted device, returns JWT immediately.
 
@@ -18,7 +21,7 @@ namespace HospitalMobileAPPApi.Swagger
                         """,
                     requestExample: """
                         {
-                          "contactNo": "03001234567",
+                          "contactNo": "010-002-152",
                           "password": "yourPassword",
                           "deviceInstallId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                           "deviceTrustToken": "optional-if-already-trusted",
@@ -134,6 +137,8 @@ namespace HospitalMobileAPPApi.Swagger
                     summary: "Reset password (JSON body)",
                     description: """
                         Updates patient password after successful OTP verification (`verify-otp`).
+                        Enforces hospital password policy (REQ-2026-016): 8–64 characters with
+                        uppercase, lowercase, number, and special character.
                         Alternative to `POST /api/Patient/updatePassword` (query-string version used by mobile app).
                         """,
                     requestExample: """
@@ -282,6 +287,8 @@ namespace HospitalMobileAPPApi.Swagger
                         Creates an appointment request. **No JWT required** — supports guest booking.
                         `mrno` is optional for guests; `name` and `phoneNo` are required.
                         Sends SMS confirmation on success.
+                        Returns `appointmentId`, confirmation QR metadata, and `pdfUrl` for the
+                        post-booking confirmation PDF (REQ-2026-014).
                         """,
                     requestExample: """
                         {
@@ -303,7 +310,40 @@ namespace HospitalMobileAPPApi.Swagger
                     responseExample: """
                         {
                           "message": "Appointment requested successfully",
-                          "rowsAffected": 1
+                          "rowsAffected": 1,
+                          "appointmentId": "45281",
+                          "confirmationQr": {
+                            "appointmentId": "45281",
+                            "qrToken": "a1b2c3d4...",
+                            "qrPayload": "https://api.example.com/api/AppointmentConfirmation/qr/a1b2c3d4...",
+                            "patientName": "Ali Khan",
+                            "doctorName": "Dr. Ahmed",
+                            "verified": true
+                          },
+                          "pdfUrl": "/api/AppointmentConfirmation/45281/pdf"
+                        }
+                        """),
+
+                ["AppointmentConfirmation_Pdf"] = new(
+                    summary: "Download appointment confirmation PDF",
+                    description: "Returns a QuestPDF confirmation document with appointment details and a scannable check-in QR (REQ-2026-014 / TC-014). Anonymous.",
+                    responseExample: "application/pdf binary"),
+
+                ["AppointmentConfirmation_ResolveQr"] = new(
+                    summary: "Resolve appointment confirmation QR (check-in)",
+                    description: "Hospital check-in: resolves opaque QR token/payload. Browsers and camera scanners receive a branded HTML verification page; use ?format=json (or Accept: application/json) for the JSON payload. Anonymous.",
+                    responseExample: """
+                        {
+                          "success": true,
+                          "message": "Appointment verified from confirmation QR.",
+                          "data": {
+                            "appointmentId": "45281",
+                            "patientName": "Ali Khan",
+                            "doctorName": "Dr. Ahmed",
+                            "appointmentTime": "10:00 AM",
+                            "status": "Pending",
+                            "verified": true
+                          }
                         }
                         """),
 
@@ -348,7 +388,7 @@ namespace HospitalMobileAPPApi.Swagger
                     parameterDescriptions: new Dictionary<string, string>
                     {
                         ["mrno"] = "Patient MR number.",
-                        ["patientPassword"] = "New password (minimum 6 characters).",
+                        ["patientPassword"] = "New password — hospital policy: 8–64 chars with upper, lower, digit, special.",
                     }),
 
                 ["Patient_GetAppointments"] = new(
@@ -652,6 +692,21 @@ namespace HospitalMobileAPPApi.Swagger
                             "totalTokens": 1,
                             "errors": []
                           }
+                        }
+                        """),
+
+                ["PushNotification_SendAppointmentFastingReminder"] = new(
+                    summary: "Send Radiology/Gastro fasting preparation reminder",
+                    description: """
+                        REQ-2026-009. Sends test-specific fasting / preparation instructions before
+                        Radiology or Gastroenterology appointments. The background worker also schedules
+                        these automatically HoursBefore the resolved appointment slot.
+                        """,
+                    requestExample: """
+                        {
+                          "mrNo": "010-002-152",
+                          "prepKind": "RADIOLOGY",
+                          "appointmentId": "12345"
                         }
                         """),
 
@@ -1037,17 +1092,21 @@ namespace HospitalMobileAPPApi.Swagger
                     }),
 
                 ["Support_CreateTicket"] = new(
-                    summary: "Submit support ticket",
-                    description: "Guest or authenticated patients can submit help requests.",
+                    summary: "Submit complaint / suggestion / support ticket",
+                    description: """
+                        Guest or authenticated patients submit complaints and suggestions.
+                        Creates a MOBILE_SUPPORT_TICKET (OPEN), writes an audit STAFF_ALERT, and surfaces the ticket
+                        in the Admin Support queue with a live open-ticket badge. Staff replies notify the patient via FCM.
+                        """,
                     requestExample: """
                         {
                           "mrNo": "010-002-152",
                           "contactName": "Ali Khan",
                           "contactPhone": "03001234567",
                           "contactEmail": "ali@example.com",
-                          "category": "App",
-                          "subject": "Cannot view lab report",
-                          "description": "Report from yesterday is missing in the app."
+                          "category": "Complaint",
+                          "subject": "Complaint — Waiting time at OPD",
+                          "description": "I waited over two hours for my appointment yesterday."
                         }
                         """),
 

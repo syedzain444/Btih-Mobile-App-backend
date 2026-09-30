@@ -11,6 +11,8 @@ namespace HospitalMobileAPPApi.Services
         Task<MobilePromotionRecord> CreateAsync(MobilePromotionRecord record);
         Task<bool> UpdateAsync(MobilePromotionRecord record);
         Task<bool> DeleteAsync(int promotionId);
+        Task<int> GetDisplayLimitAsync();
+        Task SetDisplayLimitAsync(int displayLimit);
     }
 
     public class PromotionService : IPromotionService
@@ -37,5 +39,10 @@ namespace HospitalMobileAPPApi.Services
 
         public Task<bool> DeleteAsync(int promotionId) =>
             _repository.DeleteAsync(promotionId);
+
+        public Task<int> GetDisplayLimitAsync() => _repository.GetDisplayLimitAsync();
+
+        public Task SetDisplayLimitAsync(int displayLimit) =>
+            _repository.SetDisplayLimitAsync(displayLimit);
     }
 }

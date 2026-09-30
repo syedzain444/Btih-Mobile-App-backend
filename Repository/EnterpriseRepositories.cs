@@ -5,11 +5,21 @@ namespace HospitalMobileAPPApi.Repository
 {
     public interface IPaymentRepository
     {
+        Task EnsureQrSchemaAsync(CancellationToken cancellationToken = default);
         Task<int> CreateIntentAsync(PaymentIntentDto intent);
         Task<PaymentIntentDto?> GetIntentAsync(int paymentId, string? mrNo = null);
         Task<List<PaymentIntentDto>> GetHistoryAsync(string mrNo);
         Task<bool> UpdateStatusAsync(int paymentId, string status, string? gatewayRef, string? failureReason);
         Task AddTransactionAsync(int paymentId, string eventType, string? gatewayRef, string? rawPayload);
+        Task SavePaymentQrAsync(
+            int paymentId,
+            string qrToken,
+            string qrPayload,
+            PaymentAppointmentDetailsDto? appointment);
+        Task<PaymentQrResolveDto?> GetPaymentQrByTokenAsync(string qrToken);
+        Task AttachQrToIntentAsync(PaymentIntentDto intent);
+        Task<PaymentAppointmentDetailsDto?> GetAppointmentDetailsAsync(string appointmentId);
+        Task<PaymentAppointmentDetailsDto?> GetLatestActiveAppointmentAsync(string mrNo);
     }
 
     public class PaymentRepository : IPaymentRepository
@@ -135,6 +145,271 @@ namespace HospitalMobileAPPApi.Repository
             await cmd.ExecuteNonQueryAsync();
         }
 
+        public async Task EnsureQrSchemaAsync(CancellationToken cancellationToken = default)
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await conn.OpenAsync(cancellationToken);
+
+            if (!await ObjectExistsAsync(conn, "USER_SEQUENCES", "MOBILE_PAYMENT_QR_SEQ", cancellationToken))
+            {
+                await ExecAsync(conn, @"
+                    CREATE SEQUENCE MOBILE_PAYMENT_QR_SEQ
+                      START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE", cancellationToken);
+            }
+
+            if (!await ObjectExistsAsync(conn, "USER_TABLES", "MOBILE_PAYMENT_QR", cancellationToken))
+            {
+                await ExecAsync(conn, @"
+                    CREATE TABLE MOBILE_PAYMENT_QR (
+                        QR_ID             NUMBER(10)      NOT NULL,
+                        PAYMENT_ID        NUMBER(10)      NOT NULL,
+                        QR_TOKEN          VARCHAR2(64)    NOT NULL,
+                        APPOINTMENT_ID    VARCHAR2(64),
+                        PATIENT_NAME      VARCHAR2(120),
+                        DOCTOR_NAME       VARCHAR2(120),
+                        DEPARTMENT_ID     NUMBER(10),
+                        DEPARTMENT_HINT   VARCHAR2(120),
+                        APPOINTMENT_TIME  VARCHAR2(120),
+                        PURPOSE           VARCHAR2(500),
+                        APPT_STATUS       VARCHAR2(40),
+                        QR_PAYLOAD        VARCHAR2(500)   NOT NULL,
+                        CREATED_AT        DATE            DEFAULT SYSDATE NOT NULL,
+                        CONSTRAINT PK_MOBILE_PAYMENT_QR PRIMARY KEY (QR_ID),
+                        CONSTRAINT UK_MOBILE_PAYMENT_QR_TOKEN UNIQUE (QR_TOKEN),
+                        CONSTRAINT UK_MOBILE_PAYMENT_QR_PAY UNIQUE (PAYMENT_ID)
+                    )", cancellationToken);
+            }
+        }
+
+        public async Task SavePaymentQrAsync(
+            int paymentId,
+            string qrToken,
+            string qrPayload,
+            PaymentAppointmentDetailsDto? appointment)
+        {
+            await EnsureQrSchemaAsync();
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                MERGE INTO MOBILE_PAYMENT_QR t
+                USING (SELECT :payment_id AS PAYMENT_ID FROM dual) s
+                ON (t.PAYMENT_ID = s.PAYMENT_ID)
+                WHEN MATCHED THEN UPDATE SET
+                    QR_TOKEN = :qr_token,
+                    APPOINTMENT_ID = :appointment_id,
+                    PATIENT_NAME = :patient_name,
+                    DOCTOR_NAME = :doctor_name,
+                    DEPARTMENT_ID = :department_id,
+                    DEPARTMENT_HINT = :department_hint,
+                    APPOINTMENT_TIME = :appointment_time,
+                    PURPOSE = :purpose,
+                    APPT_STATUS = :appt_status,
+                    QR_PAYLOAD = :qr_payload
+                WHEN NOT MATCHED THEN INSERT (
+                    QR_ID, PAYMENT_ID, QR_TOKEN, APPOINTMENT_ID, PATIENT_NAME, DOCTOR_NAME,
+                    DEPARTMENT_ID, DEPARTMENT_HINT, APPOINTMENT_TIME, PURPOSE, APPT_STATUS, QR_PAYLOAD, CREATED_AT
+                ) VALUES (
+                    MOBILE_PAYMENT_QR_SEQ.NEXTVAL, :payment_id, :qr_token, :appointment_id, :patient_name, :doctor_name,
+                    :department_id, :department_hint, :appointment_time, :purpose, :appt_status, :qr_payload, SYSDATE
+                )", conn);
+
+            cmd.BindByName = true;
+            cmd.Parameters.Add("payment_id", paymentId);
+            cmd.Parameters.Add("qr_token", qrToken);
+            cmd.Parameters.Add("appointment_id", (object?)appointment?.AppointmentId ?? DBNull.Value);
+            cmd.Parameters.Add("patient_name", Truncate(appointment?.PatientName, 120) ?? (object)DBNull.Value);
+            cmd.Parameters.Add("doctor_name", Truncate(appointment?.DoctorName, 120) ?? (object)DBNull.Value);
+            cmd.Parameters.Add("department_id", appointment?.DepartmentId.HasValue == true ? appointment.DepartmentId.Value : (object)DBNull.Value);
+            cmd.Parameters.Add("department_hint", Truncate(appointment?.DepartmentHint, 120) ?? (object)DBNull.Value);
+            cmd.Parameters.Add("appointment_time", Truncate(appointment?.AppointmentTime, 120) ?? (object)DBNull.Value);
+            cmd.Parameters.Add("purpose", Truncate(appointment?.Purpose, 500) ?? (object)DBNull.Value);
+            cmd.Parameters.Add("appt_status", Truncate(appointment?.Status, 40) ?? (object)DBNull.Value);
+            cmd.Parameters.Add("qr_payload", Truncate(qrPayload, 500)!);
+            await conn.OpenAsync();
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        public async Task<PaymentQrResolveDto?> GetPaymentQrByTokenAsync(string qrToken)
+        {
+            if (string.IsNullOrWhiteSpace(qrToken)) return null;
+            await EnsureQrSchemaAsync();
+
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT q.QR_TOKEN, q.QR_PAYLOAD, q.APPOINTMENT_ID, q.PATIENT_NAME, q.DOCTOR_NAME,
+                       q.DEPARTMENT_ID, q.DEPARTMENT_HINT, q.APPOINTMENT_TIME, q.PURPOSE, q.APPT_STATUS,
+                       p.PAYMENT_ID, p.MR_NO, p.BILL_ID, p.INVOICE_NO, p.AMOUNT, p.CURRENCY, p.STATUS,
+                       p.CHECKOUT_URL, p.GATEWAY_REF, p.CREATED_AT
+                  FROM MOBILE_PAYMENT_QR q
+                  JOIN MOBILE_PAYMENT_INTENT p ON p.PAYMENT_ID = q.PAYMENT_ID
+                 WHERE q.QR_TOKEN = :qr_token", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add("qr_token", qrToken.Trim());
+            await conn.OpenAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync()) return null;
+
+            return new PaymentQrResolveDto
+            {
+                PaymentId = Convert.ToInt32(reader["PAYMENT_ID"]),
+                QrToken = reader["QR_TOKEN"]?.ToString() ?? string.Empty,
+                QrPayload = reader["QR_PAYLOAD"]?.ToString(),
+                Amount = Convert.ToDecimal(reader["AMOUNT"]),
+                Currency = reader["CURRENCY"]?.ToString() ?? "PKR",
+                Status = reader["STATUS"]?.ToString() ?? string.Empty,
+                BillId = reader["BILL_ID"]?.ToString(),
+                InvoiceNo = reader["INVOICE_NO"]?.ToString(),
+                CheckoutUrl = reader["CHECKOUT_URL"]?.ToString(),
+                GatewayRef = reader["GATEWAY_REF"]?.ToString(),
+                CreatedAt = Convert.ToDateTime(reader["CREATED_AT"]),
+                Appointment = string.IsNullOrWhiteSpace(reader["APPOINTMENT_ID"]?.ToString())
+                    && string.IsNullOrWhiteSpace(reader["DOCTOR_NAME"]?.ToString())
+                    && string.IsNullOrWhiteSpace(reader["APPOINTMENT_TIME"]?.ToString())
+                    ? null
+                    : new PaymentAppointmentDetailsDto
+                    {
+                        AppointmentId = reader["APPOINTMENT_ID"]?.ToString(),
+                        PatientName = reader["PATIENT_NAME"]?.ToString(),
+                        MrNo = reader["MR_NO"]?.ToString(),
+                        DoctorName = reader["DOCTOR_NAME"]?.ToString(),
+                        DepartmentId = reader["DEPARTMENT_ID"] != DBNull.Value
+                            ? Convert.ToInt32(reader["DEPARTMENT_ID"])
+                            : null,
+                        DepartmentHint = reader["DEPARTMENT_HINT"]?.ToString(),
+                        AppointmentTime = reader["APPOINTMENT_TIME"]?.ToString(),
+                        Purpose = reader["PURPOSE"]?.ToString(),
+                        Status = reader["APPT_STATUS"]?.ToString(),
+                    },
+            };
+        }
+
+        public async Task AttachQrToIntentAsync(PaymentIntentDto intent)
+        {
+            if (intent.PaymentId <= 0) return;
+            await EnsureQrSchemaAsync();
+
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT QR_TOKEN, QR_PAYLOAD, APPOINTMENT_ID, PATIENT_NAME, DOCTOR_NAME,
+                       DEPARTMENT_ID, DEPARTMENT_HINT, APPOINTMENT_TIME, PURPOSE, APPT_STATUS
+                  FROM MOBILE_PAYMENT_QR
+                 WHERE PAYMENT_ID = :payment_id", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add("payment_id", intent.PaymentId);
+            await conn.OpenAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync()) return;
+
+            intent.QrToken = reader["QR_TOKEN"]?.ToString();
+            intent.QrPayload = reader["QR_PAYLOAD"]?.ToString();
+            intent.Appointment = new PaymentAppointmentDetailsDto
+            {
+                AppointmentId = reader["APPOINTMENT_ID"]?.ToString(),
+                PatientName = reader["PATIENT_NAME"]?.ToString(),
+                MrNo = intent.MrNo,
+                DoctorName = reader["DOCTOR_NAME"]?.ToString(),
+                DepartmentId = reader["DEPARTMENT_ID"] != DBNull.Value
+                    ? Convert.ToInt32(reader["DEPARTMENT_ID"])
+                    : null,
+                DepartmentHint = reader["DEPARTMENT_HINT"]?.ToString(),
+                AppointmentTime = reader["APPOINTMENT_TIME"]?.ToString(),
+                Purpose = reader["PURPOSE"]?.ToString(),
+                Status = reader["APPT_STATUS"]?.ToString(),
+            };
+        }
+
+        public async Task<PaymentAppointmentDetailsDto?> GetAppointmentDetailsAsync(string appointmentId)
+        {
+            if (string.IsNullOrWhiteSpace(appointmentId)) return null;
+
+            var connStr = _configuration.GetConnectionString("HOS_WEB_MVC_LIVE");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT a.APPOINTMENT_ID, a.NAME, a.MRNUM, a.APPOINTMENTTIME, a.STATUS, a.PURPOSE,
+                       a.DEPARTMENT_ID, d.DOCTOR_NAME, s.SPECIALIZATIONNAME
+                  FROM APPOINTMENT a
+                  JOIN DOCTOR d ON a.DOCTOR_ID = d.DOCTOR_ID
+                  LEFT JOIN SPECIALIZATION s ON d.SPECIALIZATIONID = s.SPECIALIZATIONID
+                 WHERE a.APPOINTMENT_ID = :appointment_id", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add("appointment_id", appointmentId.Trim());
+            await conn.OpenAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            return await reader.ReadAsync() ? MapAppointmentDetails(reader) : null;
+        }
+
+        public async Task<PaymentAppointmentDetailsDto?> GetLatestActiveAppointmentAsync(string mrNo)
+        {
+            if (string.IsNullOrWhiteSpace(mrNo)) return null;
+
+            var connStr = _configuration.GetConnectionString("HOS_WEB_MVC_LIVE");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT * FROM (
+                    SELECT a.APPOINTMENT_ID, a.NAME, a.MRNUM, a.APPOINTMENTTIME, a.STATUS, a.PURPOSE,
+                           a.DEPARTMENT_ID, d.DOCTOR_NAME, s.SPECIALIZATIONNAME
+                      FROM APPOINTMENT a
+                      JOIN DOCTOR d ON a.DOCTOR_ID = d.DOCTOR_ID
+                      LEFT JOIN SPECIALIZATION s ON d.SPECIALIZATIONID = s.SPECIALIZATIONID
+                     WHERE a.MRNUM = :mr_no
+                       AND NVL(a.IS_ACTIVE, 'Y') = 'Y'
+                       AND UPPER(NVL(a.STATUS, 'PENDING')) IN ('PENDING', 'CONFIRMED')
+                     ORDER BY a.CREATED_AT DESC
+                ) WHERE ROWNUM = 1", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add("mr_no", mrNo.Trim());
+            await conn.OpenAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            return await reader.ReadAsync() ? MapAppointmentDetails(reader) : null;
+        }
+
+        private static PaymentAppointmentDetailsDto MapAppointmentDetails(OracleDataReader reader) => new()
+        {
+            AppointmentId = reader["APPOINTMENT_ID"]?.ToString(),
+            PatientName = reader["NAME"]?.ToString(),
+            MrNo = reader["MRNUM"]?.ToString(),
+            DoctorName = reader["DOCTOR_NAME"]?.ToString(),
+            DepartmentId = reader["DEPARTMENT_ID"] != DBNull.Value
+                ? Convert.ToInt32(reader["DEPARTMENT_ID"])
+                : null,
+            DepartmentHint = reader["SPECIALIZATIONNAME"]?.ToString(),
+            AppointmentTime = reader["APPOINTMENTTIME"]?.ToString(),
+            Purpose = reader["PURPOSE"]?.ToString(),
+            Status = reader["STATUS"]?.ToString(),
+        };
+
+        private static string? Truncate(string? value, int max) =>
+            string.IsNullOrEmpty(value) ? value : (value.Length <= max ? value : value[..max]);
+
+        private static async Task<bool> ObjectExistsAsync(
+            OracleConnection conn,
+            string catalogView,
+            string objectName,
+            CancellationToken cancellationToken)
+        {
+            var column = catalogView.Contains("SEQUENCE", StringComparison.OrdinalIgnoreCase)
+                ? "SEQUENCE_NAME"
+                : "TABLE_NAME";
+            await using var cmd = new OracleCommand(
+                $"SELECT COUNT(1) FROM {catalogView} WHERE {column} = :name", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add("name", objectName.ToUpperInvariant());
+            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync(cancellationToken));
+            return count > 0;
+        }
+
+        private static async Task ExecAsync(
+            OracleConnection conn,
+            string sql,
+            CancellationToken cancellationToken)
+        {
+            await using var cmd = new OracleCommand(sql, conn);
+            await cmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         private static PaymentIntentDto MapPayment(OracleDataReader reader) => new()
         {
             PaymentId = Convert.ToInt32(reader["PAYMENT_ID"]),
@@ -159,6 +434,7 @@ namespace HospitalMobileAPPApi.Repository
         Task<bool> CreateAdminAsync(AdminUserDto user, string passwordHash);
         Task<bool> UpdatePasswordHashAsync(string username, string passwordHash);
         Task<List<SupportTicketDto>> GetOpenTicketsAsync();
+        Task<SupportTicketDto?> GetTicketByIdAsync(int ticketId);
         Task<bool> UpdateTicketAsync(int ticketId, string status, string? adminNotes);
         Task<bool> UpdateRefillAsync(int refillId, string status, string? statusMessage);
         Task<List<RefillRequestItem>> GetPendingRefillsAsync();
@@ -242,7 +518,8 @@ namespace HospitalMobileAPPApi.Repository
             var connStr = _configuration.GetConnectionString("HMISConnection");
             await using var conn = new OracleConnection(connStr);
             await using var cmd = new OracleCommand(@"
-                SELECT TICKET_ID, MR_NO, CONTACT_NAME, CATEGORY, SUBJECT, DESCRIPTION, STATUS, ADMIN_NOTES, CREATED_AT, UPDATED_AT
+                SELECT TICKET_ID, MR_NO, CONTACT_NAME, CONTACT_PHONE, CONTACT_EMAIL,
+                       CATEGORY, SUBJECT, DESCRIPTION, STATUS, ADMIN_NOTES, CREATED_AT, UPDATED_AT
                 FROM MOBILE_SUPPORT_TICKET
                 WHERE STATUS IN ('OPEN', 'IN_PROGRESS')
                 ORDER BY CREATED_AT DESC", conn);
@@ -250,6 +527,23 @@ namespace HospitalMobileAPPApi.Repository
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync()) list.Add(MapTicket(reader));
             return list;
+        }
+
+        public async Task<SupportTicketDto?> GetTicketByIdAsync(int ticketId)
+        {
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+            await using var conn = new OracleConnection(connStr);
+            await using var cmd = new OracleCommand(@"
+                SELECT TICKET_ID, MR_NO, CONTACT_NAME, CONTACT_PHONE, CONTACT_EMAIL,
+                       CATEGORY, SUBJECT, DESCRIPTION, STATUS, ADMIN_NOTES, CREATED_AT, UPDATED_AT
+                FROM MOBILE_SUPPORT_TICKET
+                WHERE TICKET_ID = :ticket_id", conn);
+            cmd.BindByName = true;
+            cmd.Parameters.Add(new OracleParameter("ticket_id", ticketId));
+            await conn.OpenAsync();
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync()) return null;
+            return MapTicket(reader);
         }
 
         public async Task<bool> UpdateTicketAsync(int ticketId, string status, string? adminNotes)
@@ -323,6 +617,8 @@ namespace HospitalMobileAPPApi.Repository
             TicketId = Convert.ToInt32(reader["TICKET_ID"]),
             MrNo = reader["MR_NO"]?.ToString(),
             ContactName = reader["CONTACT_NAME"]?.ToString() ?? string.Empty,
+            ContactPhone = HasColumn(reader, "CONTACT_PHONE") ? reader["CONTACT_PHONE"]?.ToString() : null,
+            ContactEmail = HasColumn(reader, "CONTACT_EMAIL") ? reader["CONTACT_EMAIL"]?.ToString() : null,
             Category = reader["CATEGORY"]?.ToString() ?? string.Empty,
             Subject = reader["SUBJECT"]?.ToString() ?? string.Empty,
             Description = reader["DESCRIPTION"]?.ToString() ?? string.Empty,
@@ -331,6 +627,18 @@ namespace HospitalMobileAPPApi.Repository
             CreatedAt = Convert.ToDateTime(reader["CREATED_AT"]),
             UpdatedAt = Convert.ToDateTime(reader["UPDATED_AT"]),
         };
+
+        private static bool HasColumn(OracleDataReader reader, string name)
+        {
+            for (var i = 0; i < reader.FieldCount; i++)
+            {
+                if (string.Equals(reader.GetName(i), name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 
     public interface IAuditLogRepository

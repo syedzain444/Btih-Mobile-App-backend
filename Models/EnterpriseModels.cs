@@ -7,6 +7,9 @@ namespace HospitalMobileAPPApi.Models
         public string? InvoiceNo { get; set; }
         public decimal Amount { get; set; }
         public string? ReturnUrl { get; set; }
+
+        /// <summary>Optional appointment to bind into the payment QR (OPD / Rad / Gastro).</summary>
+        public string? AppointmentId { get; set; }
     }
 
     public class PaymentIntentDto
@@ -24,6 +27,46 @@ namespace HospitalMobileAPPApi.Models
         public string? GatewayRef { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? PaidAt { get; set; }
+
+        /// <summary>Opaque token embedded in the payment QR.</summary>
+        public string? QrToken { get; set; }
+
+        /// <summary>Deep-link / HTTPS payload encoded in the QR (scan resolves appointment details).</summary>
+        public string? QrPayload { get; set; }
+
+        /// <summary>PNG QR as base64 (data URI friendly).</summary>
+        public string? QrImageBase64 { get; set; }
+
+        public PaymentAppointmentDetailsDto? Appointment { get; set; }
+    }
+
+    public class PaymentAppointmentDetailsDto
+    {
+        public string? AppointmentId { get; set; }
+        public string? PatientName { get; set; }
+        public string? MrNo { get; set; }
+        public string? DoctorName { get; set; }
+        public int? DepartmentId { get; set; }
+        public string? DepartmentHint { get; set; }
+        public string? AppointmentTime { get; set; }
+        public string? Purpose { get; set; }
+        public string? Status { get; set; }
+    }
+
+    public class PaymentQrResolveDto
+    {
+        public int PaymentId { get; set; }
+        public string QrToken { get; set; } = string.Empty;
+        public string? QrPayload { get; set; }
+        public decimal Amount { get; set; }
+        public string Currency { get; set; } = "PKR";
+        public string Status { get; set; } = string.Empty;
+        public string? BillId { get; set; }
+        public string? InvoiceNo { get; set; }
+        public string? CheckoutUrl { get; set; }
+        public string? GatewayRef { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public PaymentAppointmentDetailsDto? Appointment { get; set; }
     }
 
     public class ConfirmPaymentRequest
@@ -145,6 +188,20 @@ namespace HospitalMobileAPPApi.Models
         public string Answer { get; set; } = string.Empty;
     }
 
+    public class FaqAdminItem
+    {
+        public int FaqId { get; set; }
+        public string Category { get; set; } = "General";
+        public string QuestionEn { get; set; } = string.Empty;
+        public string AnswerEn { get; set; } = string.Empty;
+        public string? QuestionUr { get; set; }
+        public string? AnswerUr { get; set; }
+        public int SortOrder { get; set; }
+        public bool IsActive { get; set; } = true;
+        public DateTime? CreatedAt { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+    }
+
     public class SupportContactDto
     {
         public string HospitalName { get; set; } = string.Empty;
@@ -170,6 +227,8 @@ namespace HospitalMobileAPPApi.Models
         public int TicketId { get; set; }
         public string? MrNo { get; set; }
         public string ContactName { get; set; } = string.Empty;
+        public string? ContactPhone { get; set; }
+        public string? ContactEmail { get; set; }
         public string Category { get; set; } = string.Empty;
         public string Subject { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;

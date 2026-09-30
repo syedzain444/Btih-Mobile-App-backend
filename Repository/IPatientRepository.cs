@@ -11,7 +11,7 @@ namespace HospitalMobileAPPApi.Repository
         Task<List<LabReportModel>> GetGastroReports(string MR_NO);
         Task<List<LabReportModel>> GetRadiology(string MR_NO);
         Task<List<PrescriptionModel>> GetPrescriptions(string MR_NO);
-        Task<int> InsertAppointment(AppointmentModel model);
+        Task<AppointmentBookingResult> InsertAppointment(AppointmentModel model);
         Task<int> UpdatePatientPassword(string mrno, string patientPassword);
         Task<bool> UpdatePatientProfileAsync(UpdatePatientProfileRequest request);
         Task<List<PatientAppointment>> GetAppointments(string MR_NO);

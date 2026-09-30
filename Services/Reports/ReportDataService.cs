@@ -9,6 +9,7 @@ public interface IReportDataService
 {
     DataTable GetReportConfiguration(long rptId);
     List<DataTable> LoadReportDataSets(long rptId, string parameter, DateTime? d1 = null, DateTime? d2 = null);
+    List<DataTable> LoadReportDataSets(DataTable config, string parameter, DateTime? d1 = null, DateTime? d2 = null);
     DataTable ExecuteQuerySafe(string query, string parameter);
     DataTable GetDataTable(OracleConnection connection, string query, string? parameter = null);
     string GetString(OracleConnection connection, string query, string parameter);
@@ -69,6 +70,11 @@ public sealed class ReportDataService : IReportDataService
     public List<DataTable> LoadReportDataSets(long rptId, string parameter, DateTime? d1 = null, DateTime? d2 = null)
     {
         var config = GetReportConfiguration(rptId);
+        return LoadReportDataSets(config, parameter, d1, d2);
+    }
+
+    public List<DataTable> LoadReportDataSets(DataTable config, string parameter, DateTime? d1 = null, DateTime? d2 = null)
+    {
         if (config.Rows.Count == 0)
             return [];
 

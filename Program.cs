@@ -51,15 +51,22 @@ builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection(Se
 builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection(RateLimitSettings.SectionName));
 builder.Services.Configure<MessagingSettings>(builder.Configuration.GetSection(MessagingSettings.SectionName));
 builder.Services.Configure<ReminderSettings>(builder.Configuration.GetSection(ReminderSettings.SectionName));
+builder.Services.Configure<AppointmentPrepSettings>(builder.Configuration.GetSection(AppointmentPrepSettings.SectionName));
 builder.Services.Configure<PaymentGatewaySettings>(builder.Configuration.GetSection(PaymentGatewaySettings.SectionName));
 builder.Services.Configure<AdminSettings>(builder.Configuration.GetSection(AdminSettings.SectionName));
 builder.Services.Configure<TelemedicineSettings>(builder.Configuration.GetSection(TelemedicineSettings.SectionName));
 builder.Services.Configure<SupportSettings>(builder.Configuration.GetSection(SupportSettings.SectionName));
 builder.Services.Configure<MonitoringSettings>(builder.Configuration.GetSection(MonitoringSettings.SectionName));
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 6 * 1024 * 1024;
+    options.ValueLengthLimit = 6 * 1024 * 1024;
+});
 
 DataProtectionConfigurator.ConfigureDataProtection(builder);
 
 builder.Services.AddMemoryCache();
+builder.Services.AddHttpContextAccessor();
 
 var rateLimitSettings = builder.Configuration.GetSection(RateLimitSettings.SectionName).Get<RateLimitSettings>() ?? new RateLimitSettings();
 builder.Services.AddRateLimiter(options =>
@@ -111,9 +118,13 @@ builder.Services.AddScoped<IMedicationRepository, MedicationRepository>();
 builder.Services.AddScoped<IMedicationService, MedicationService>();
 builder.Services.AddScoped<IReminderRepository, ReminderRepository>();
 builder.Services.AddScoped<IReminderService, ReminderService>();
+builder.Services.AddScoped<IAppointmentPrepRepository, AppointmentPrepRepository>();
+builder.Services.AddScoped<IAppointmentPrepService, AppointmentPrepService>();
 builder.Services.AddScoped<IMobilePortalSchemaService, MobilePortalSchemaService>();
 builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IAppointmentConfirmationRepository, AppointmentConfirmationRepository>();
+builder.Services.AddScoped<IAppointmentConfirmationService, AppointmentConfirmationService>();
 builder.Services.AddScoped<IAdminRepository, AdminRepository>();
 builder.Services.AddScoped<IAdminPortalRepository, AdminPortalRepository>();
 builder.Services.AddHttpClient(nameof(SmsService), client =>
@@ -125,7 +136,8 @@ builder.Services.AddScoped<ISmsService, SmsService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IAdminReportService, AdminReportService>();
 builder.Services.AddScoped<IReportDataService, ReportDataService>();
-builder.Services.AddScoped<IReportBrandingProvider, ReportBrandingProvider>();
+builder.Services.AddSingleton<IReportBrandingProvider, ReportBrandingProvider>();
+builder.Services.AddSingleton<IReportPdfResultCache, ReportPdfResultCache>();
 builder.Services.AddScoped<IReportPdfRenderer, LabReportRenderer>();
 builder.Services.AddScoped<IReportPdfRenderer, GastReportRenderer>();
 builder.Services.AddScoped<IReportPdfRenderer, RadReportRenderer>();
@@ -146,6 +158,7 @@ builder.Services.AddScoped<ISupportService, SupportService>();
 builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
 builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
 builder.Services.AddHostedService<MedicationReminderBackgroundService>();
+builder.Services.AddHostedService<AppointmentPrepReminderBackgroundService>();
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"];
@@ -180,11 +193,16 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(AuthorizationPolicies.StaffOrAdmin, policy =>
         policy.RequireRole(AppRoles.Admin, AppRoles.Staff));
 
+    options.AddPolicy(AuthorizationPolicies.PortalAccess, policy =>
+        policy.RequireRole(AppRoles.Admin, AppRoles.Staff, AppRoles.Reception));
+
     options.AddPolicy(AuthorizationPolicies.PatientOnly, policy =>
         policy.RequireAssertion(context =>
             context.User.Identity?.IsAuthenticated == true &&
             (context.User.IsInRole(AppRoles.Patient) ||
-             (!context.User.IsInRole(AppRoles.Admin) && !context.User.IsInRole(AppRoles.Staff)))));
+             (!context.User.IsInRole(AppRoles.Admin) &&
+              !context.User.IsInRole(AppRoles.Staff) &&
+              !context.User.IsInRole(AppRoles.Reception)))));
 });
 QuestPDF.Settings.License = LicenseType.Community;
 
@@ -236,6 +254,16 @@ builder.Services.AddSwaggerGen(options =>
         options.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
     }
 
+    // Prevent Swagger generation from crashing the whole document on one bad action.
+    options.IgnoreObsoleteActions();
+    options.CustomOperationIds(api =>
+        $"{api.ActionDescriptor.RouteValues["controller"]}_{api.ActionDescriptor.RouteValues["action"]}");
+    options.MapType<IFormFile>(() => new OpenApiSchema
+    {
+        Type = "string",
+        Format = "binary",
+    });
+
     options.OperationFilter<AuthorizeCheckOperationFilter>();
     options.OperationFilter<ApiDocumentationOperationFilter>();
     options.DocumentFilter<SwaggerDocumentFilter>();
@@ -263,6 +291,59 @@ else
             var schemaService = scope.ServiceProvider.GetRequiredService<IMobilePortalSchemaService>();
             await schemaService.EnsurePromotionSchemaAsync();
             app.Logger.LogInformation("MOBILE_PROMOTION schema verified.");
+
+            try
+            {
+                await schemaService.EnsureProfilePhotoSchemaAsync();
+                app.Logger.LogInformation("PATIENT_PROFILE_PHOTO schema verified.");
+            }
+            catch (Exception photoEx)
+            {
+                app.Logger.LogWarning(photoEx, "Could not ensure profile photo schema at startup.");
+            }
+
+            try
+            {
+                await schemaService.EnsureSupportContentSchemaAsync();
+                app.Logger.LogInformation("Support contact/FAQ schema verified.");
+            }
+            catch (Exception supportEx)
+            {
+                app.Logger.LogWarning(supportEx, "Could not ensure support content schema at startup.");
+            }
+
+            try
+            {
+                var prepService = scope.ServiceProvider.GetRequiredService<IAppointmentPrepService>();
+                await prepService.EnsureSchemaAsync();
+                app.Logger.LogInformation("MOBILE_APPOINTMENT_PREP_ALERT schema verified.");
+            }
+            catch (Exception prepEx)
+            {
+                app.Logger.LogWarning(prepEx, "Could not ensure appointment prep schema at startup.");
+            }
+
+            try
+            {
+                var paymentService = scope.ServiceProvider.GetRequiredService<IPaymentService>();
+                await paymentService.EnsureSchemaAsync();
+                app.Logger.LogInformation("MOBILE_PAYMENT_QR schema verified.");
+            }
+            catch (Exception payEx)
+            {
+                app.Logger.LogWarning(payEx, "Could not ensure payment QR schema at startup.");
+            }
+
+            try
+            {
+                var confirmService = scope.ServiceProvider.GetRequiredService<IAppointmentConfirmationService>();
+                await confirmService.EnsureSchemaAsync();
+                app.Logger.LogInformation("MOBILE_APPOINTMENT_CONFIRM_QR schema verified.");
+            }
+            catch (Exception confirmEx)
+            {
+                app.Logger.LogWarning(confirmEx, "Could not ensure appointment confirmation QR schema at startup.");
+            }
 
             var missing = await schemaService.GetMissingTablesAsync();
             if (missing.Count > 0)
@@ -321,10 +402,24 @@ if (enableSwagger)
     });
 }
 
-var promotionsUploadDir = Path.Combine(app.Environment.WebRootPath, "uploads", "promotions");
-Directory.CreateDirectory(promotionsUploadDir);
+var webRoot = app.Environment.WebRootPath
+    ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+Directory.CreateDirectory(webRoot);
+Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "promotions"));
+
+// Profile photos live under ProgramData so IIS AppPool can write
+// (inetpub\wwwroot is often locked down → "Access to the path ... is denied").
+var profilePhotoRoot = HospitalMobileAPPApi.Helpers.ProfilePhotoStorage.EnsureRoot(
+    app.Configuration,
+    app.Environment);
+app.Logger.LogInformation("Profile photo storage: {ProfilePhotoRoot}", profilePhotoRoot);
 
 app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(profilePhotoRoot),
+    RequestPath = HospitalMobileAPPApi.Helpers.ProfilePhotoStorage.UrlPrefix,
+});
 app.UseRouting();
 app.UseRateLimiter();
 app.UseCors("AllowAll");

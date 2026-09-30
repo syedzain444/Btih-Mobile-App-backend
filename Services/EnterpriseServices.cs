@@ -2,6 +2,7 @@ using HospitalMobileAPPApi.Configuration;
 using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Repository;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Security.Cryptography;
@@ -29,10 +30,12 @@ namespace HospitalMobileAPPApi.Services
 
     public interface IPaymentService
     {
+        Task EnsureSchemaAsync(CancellationToken cancellationToken = default);
         Task<PaymentIntentDto> CreateIntentAsync(CreatePaymentRequest request);
         Task<PaymentIntentDto?> ConfirmAsync(ConfirmPaymentRequest request, string? rawPayload = null);
         Task<PaymentIntentDto?> GetIntentAsync(int paymentId, string? mrNo = null);
         Task<List<PaymentIntentDto>> GetHistoryAsync(string mrNo);
+        Task<PaymentQrResolveDto?> ResolveQrAsync(string qrTokenOrPayload);
         Task<bool> ProcessWebhookAsync(string? signature, string rawBody);
     }
 
@@ -40,12 +43,23 @@ namespace HospitalMobileAPPApi.Services
     {
         private readonly IPaymentRepository _repository;
         private readonly PaymentGatewaySettings _settings;
+        private readonly ILogger<PaymentService> _logger;
+        private readonly IHttpContextAccessor? _httpContextAccessor;
 
-        public PaymentService(IPaymentRepository repository, IOptions<PaymentGatewaySettings> settings)
+        public PaymentService(
+            IPaymentRepository repository,
+            IOptions<PaymentGatewaySettings> settings,
+            ILogger<PaymentService> logger,
+            IHttpContextAccessor? httpContextAccessor = null)
         {
             _repository = repository;
             _settings = settings.Value;
+            _logger = logger;
+            _httpContextAccessor = httpContextAccessor;
         }
+
+        public Task EnsureSchemaAsync(CancellationToken cancellationToken = default) =>
+            _repository.EnsureQrSchemaAsync(cancellationToken);
 
         public async Task<PaymentIntentDto> CreateIntentAsync(CreatePaymentRequest request)
         {
@@ -75,6 +89,19 @@ namespace HospitalMobileAPPApi.Services
             var paymentId = await _repository.CreateIntentAsync(intent);
             intent.PaymentId = paymentId;
             await _repository.AddTransactionAsync(paymentId, "INTENT_CREATED", gatewayRef, null);
+
+            if (_settings.EnablePaymentQr)
+            {
+                try
+                {
+                    await AttachQrAndAppointmentAsync(intent, request.AppointmentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Payment #{PaymentId} created but QR/appointment attach failed", paymentId);
+                }
+            }
+
             return intent;
         }
 
@@ -88,6 +115,7 @@ namespace HospitalMobileAPPApi.Services
 
             if (intent.Status is "PAID" or "FAILED" or "CANCELLED")
             {
+                await _repository.AttachQrToIntentAsync(intent);
                 return intent;
             }
 
@@ -106,14 +134,149 @@ namespace HospitalMobileAPPApi.Services
             var gatewayRef = request.GatewayRef ?? intent.GatewayRef;
             await _repository.UpdateStatusAsync(request.PaymentId, "PAID", gatewayRef, null);
             await _repository.AddTransactionAsync(request.PaymentId, "PAYMENT_CONFIRMED", gatewayRef, rawPayload);
-            return await _repository.GetIntentAsync(request.PaymentId);
+            var updated = await _repository.GetIntentAsync(request.PaymentId);
+            if (updated != null)
+            {
+                await _repository.AttachQrToIntentAsync(updated);
+            }
+
+            return updated;
         }
 
-        public Task<PaymentIntentDto?> GetIntentAsync(int paymentId, string? mrNo = null) =>
-            _repository.GetIntentAsync(paymentId, mrNo);
+        public async Task<PaymentIntentDto?> GetIntentAsync(int paymentId, string? mrNo = null)
+        {
+            var intent = await _repository.GetIntentAsync(paymentId, mrNo);
+            if (intent != null)
+            {
+                await _repository.AttachQrToIntentAsync(intent);
+                if (!string.IsNullOrWhiteSpace(intent.QrPayload))
+                {
+                    intent.QrImageBase64 = GenerateQrBase64(intent.QrPayload);
+                }
+            }
 
-        public Task<List<PaymentIntentDto>> GetHistoryAsync(string mrNo) =>
-            _repository.GetHistoryAsync(mrNo.Trim());
+            return intent;
+        }
+
+        public async Task<List<PaymentIntentDto>> GetHistoryAsync(string mrNo)
+        {
+            var history = await _repository.GetHistoryAsync(mrNo.Trim());
+            foreach (var intent in history)
+            {
+                await _repository.AttachQrToIntentAsync(intent);
+            }
+
+            return history;
+        }
+
+        public async Task<PaymentQrResolveDto?> ResolveQrAsync(string qrTokenOrPayload)
+        {
+            var token = ExtractQrToken(qrTokenOrPayload);
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return null;
+            }
+
+            return await _repository.GetPaymentQrByTokenAsync(token);
+        }
+
+        private async Task AttachQrAndAppointmentAsync(PaymentIntentDto intent, string? appointmentId)
+        {
+            await _repository.EnsureQrSchemaAsync();
+
+            PaymentAppointmentDetailsDto? appointment = null;
+            if (!string.IsNullOrWhiteSpace(appointmentId))
+            {
+                appointment = await _repository.GetAppointmentDetailsAsync(appointmentId);
+            }
+
+            appointment ??= await _repository.GetLatestActiveAppointmentAsync(intent.MrNo);
+
+            var token = GenerateQrToken();
+            var payload = BuildQrPayload(token);
+            await _repository.SavePaymentQrAsync(intent.PaymentId, token, payload, appointment);
+
+            intent.QrToken = token;
+            intent.QrPayload = payload;
+            intent.QrImageBase64 = GenerateQrBase64(payload);
+            intent.Appointment = appointment;
+        }
+
+        private string BuildQrPayload(string token)
+        {
+            var apiBase = ResolvePublicApiBase();
+            if (!string.IsNullOrWhiteSpace(apiBase))
+            {
+                return $"{apiBase.TrimEnd('/')}/api/Payment/qr/{token}";
+            }
+
+            return $"btihapp://payment/qr/{token}";
+        }
+
+        private string ResolvePublicApiBase()
+        {
+            if (!string.IsNullOrWhiteSpace(_settings.PublicApiBaseUrl))
+            {
+                return _settings.PublicApiBaseUrl.Trim().TrimEnd('/');
+            }
+
+            var request = _httpContextAccessor?.HttpContext?.Request;
+            if (request != null)
+            {
+                return $"{request.Scheme}://{request.Host.Value}";
+            }
+
+            return string.Empty;
+        }
+
+        private static string GenerateQrToken()
+        {
+            var bytes = new byte[24];
+            Random.Shared.NextBytes(bytes);
+            return Convert.ToHexString(bytes).ToLowerInvariant();
+        }
+
+        internal static string? ExtractQrToken(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            var value = raw.Trim();
+
+            // Absolute or relative API path
+            var marker = "/api/Payment/qr/";
+            var idx = value.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+            {
+                var token = value[(idx + marker.Length)..];
+                var cut = token.IndexOfAny(['?', '#', '/', '&']);
+                return cut >= 0 ? token[..cut] : token;
+            }
+
+            // Deep link btihapp://payment/qr/{token}
+            const string deep = "btihapp://payment/qr/";
+            if (value.StartsWith(deep, StringComparison.OrdinalIgnoreCase))
+            {
+                var token = value[deep.Length..];
+                var cut = token.IndexOfAny(['?', '#', '/', '&']);
+                return cut >= 0 ? token[..cut] : token;
+            }
+
+            // Bare token (hex)
+            if (value.Length is >= 16 and <= 64 && value.All(Uri.IsHexDigit))
+            {
+                return value;
+            }
+
+            return value;
+        }
+
+        private static string GenerateQrBase64(string payload)
+        {
+            using var generator = new QRCoder.QRCodeGenerator();
+            using var data = generator.CreateQrCode(payload, QRCoder.QRCodeGenerator.ECCLevel.Q);
+            var png = new QRCoder.PngByteQRCode(data);
+            var bytes = png.GetGraphic(8);
+            return Convert.ToBase64String(bytes);
+        }
 
         public async Task<bool> ProcessWebhookAsync(string? signature, string rawBody)
         {
@@ -198,6 +361,7 @@ namespace HospitalMobileAPPApi.Services
         private readonly IPushNotificationService _pushNotificationService;
         private readonly ISmsService _smsService;
         private readonly IJwtService _jwtService;
+        private readonly IAppointmentPrepService _appointmentPrepService;
         private readonly AdminSettings _adminSettings;
         private readonly ILogger<AdminService> _logger;
 
@@ -208,6 +372,7 @@ namespace HospitalMobileAPPApi.Services
             IPushNotificationService pushNotificationService,
             ISmsService smsService,
             IJwtService jwtService,
+            IAppointmentPrepService appointmentPrepService,
             IOptions<AdminSettings> adminSettings,
             ILogger<AdminService> logger)
         {
@@ -217,6 +382,7 @@ namespace HospitalMobileAPPApi.Services
             _pushNotificationService = pushNotificationService;
             _smsService = smsService;
             _jwtService = jwtService;
+            _appointmentPrepService = appointmentPrepService;
             _adminSettings = adminSettings.Value;
             _logger = logger;
         }
@@ -240,9 +406,10 @@ namespace HospitalMobileAPPApi.Services
             var token = _jwtService.GenerateToken(
                 $"admin:{user.AdminId}",
                 user.Username,
-                user.Role,
+                AppRoles.NormalizePortalRole(user.Role),
                 _adminSettings.TokenExpiryMinutes);
 
+            user.Role = AppRoles.NormalizePortalRole(user.Role);
             return (true, "Login successful", token, user);
         }
 
@@ -263,7 +430,7 @@ namespace HospitalMobileAPPApi.Services
                 {
                     Username = request.Username.Trim(),
                     DisplayName = request.DisplayName,
-                    Role = request.Role is "Admin" or "Staff" ? request.Role : "Admin",
+                    Role = AppRoles.NormalizePortalRole(request.Role),
                     IsActive = true,
                 }, passwordHash);
 
@@ -372,6 +539,37 @@ namespace HospitalMobileAPPApi.Services
             }
 
             await SendAppointmentApprovedSmsAsync(appointment);
+
+            if (!string.IsNullOrWhiteSpace(appointment.MRNo))
+            {
+                try
+                {
+                    await _pushNotificationService.SendToPatientAsync(
+                        appointment.MRNo,
+                        "Appointment Confirmed",
+                        $"Your appointment{(string.IsNullOrWhiteSpace(appointment.AppointmentTime) ? string.Empty : $" ({appointment.AppointmentTime})")} has been confirmed.",
+                        PushNotificationTypes.AppointmentConfirmed,
+                        new Dictionary<string, string>
+                        {
+                            ["screen"] = "appointments",
+                            ["appointmentId"] = appointmentId,
+                        });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send appointment confirmed push for {AppointmentId}", appointmentId);
+                }
+
+                try
+                {
+                    await _appointmentPrepService.ScheduleForAppointmentAsync(appointmentId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to schedule fasting prep for confirmed appointment {AppointmentId}", appointmentId);
+                }
+            }
+
             return appointment;
         }
 
@@ -421,7 +619,21 @@ namespace HospitalMobileAPPApi.Services
         public async Task<PatientAppointment?> RejectAppointmentAsync(string appointmentId, string? notes)
         {
             var updated = await _adminPortalRepository.UpdateAppointmentStatusAsync(appointmentId, "Rejected", notes);
-            return updated ? await _adminPortalRepository.GetAppointmentAsync(appointmentId) : null;
+            if (!updated)
+            {
+                return null;
+            }
+
+            try
+            {
+                await _appointmentPrepService.CancelForAppointmentAsync(appointmentId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cancel prep alerts for rejected appointment {AppointmentId}", appointmentId);
+            }
+
+            return await _adminPortalRepository.GetAppointmentAsync(appointmentId);
         }
 
         public async Task<MessageItem?> ReplyToThreadAsync(AdminReplyMessageRequest request)
@@ -487,8 +699,71 @@ namespace HospitalMobileAPPApi.Services
         public Task<List<SupportTicketDto>> GetOpenTicketsAsync() =>
             _adminRepository.GetOpenTicketsAsync();
 
-        public Task<bool> UpdateTicketAsync(AdminUpdateTicketRequest request) =>
-            _adminRepository.UpdateTicketAsync(request.TicketId, request.Status, request.AdminNotes);
+        public async Task<bool> UpdateTicketAsync(AdminUpdateTicketRequest request)
+        {
+            var existing = await _adminRepository.GetTicketByIdAsync(request.TicketId);
+            if (existing == null)
+            {
+                return false;
+            }
+
+            var updated = await _adminRepository.UpdateTicketAsync(
+                request.TicketId,
+                request.Status,
+                request.AdminNotes);
+            if (!updated)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(existing.MrNo))
+            {
+                return true;
+            }
+
+            try
+            {
+                var hasReply = !string.IsNullOrWhiteSpace(request.AdminNotes);
+                var statusLabel = request.Status.Replace('_', ' ').ToLowerInvariant();
+                var title = hasReply
+                    ? "Reply on your support ticket"
+                    : "Support ticket updated";
+                var body = hasReply
+                    ? TruncateForPush(request.AdminNotes!)
+                    : $"Ticket #{request.TicketId} is now {statusLabel}.";
+
+                await _pushNotificationService.SendToPatientAsync(
+                    existing.MrNo,
+                    title,
+                    body,
+                    hasReply
+                        ? PushNotificationTypes.SupportTicketReply
+                        : PushNotificationTypes.SupportTicketUpdated,
+                    new Dictionary<string, string>
+                    {
+                        ["ticketId"] = request.TicketId.ToString(),
+                        ["status"] = request.Status,
+                        ["category"] = existing.Category ?? string.Empty,
+                        ["screen"] = "support_tickets",
+                        ["priority"] = "high",
+                    });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to send support ticket push for ticket {TicketId}",
+                    request.TicketId);
+            }
+
+            return true;
+        }
+
+        private static string TruncateForPush(string text)
+        {
+            var trimmed = text.Trim();
+            return trimmed.Length > 120 ? trimmed[..120] + "..." : trimmed;
+        }
     }
 
     public class AdminReportService : IAdminReportService
@@ -629,8 +904,14 @@ namespace HospitalMobileAPPApi.Services
 
     public interface ISupportService
     {
-        SupportContactDto GetContactInfo();
+        Task<SupportContactDto> GetContactInfoAsync();
+        Task UpdateContactInfoAsync(SupportContactDto contact);
         Task<List<FaqItem>> GetFaqAsync(string langCode, string? category);
+        Task<List<FaqAdminItem>> GetAllFaqsAdminAsync();
+        Task<FaqAdminItem?> GetFaqByIdAsync(int faqId);
+        Task<int> CreateFaqAsync(FaqAdminItem item);
+        Task<bool> UpdateFaqAsync(FaqAdminItem item);
+        Task<bool> DeleteFaqAsync(int faqId);
         Task<int> CreateTicketAsync(CreateSupportTicketRequest request);
         Task<SupportTicketDto?> GetTicketAsync(int ticketId, string? mrNo);
         Task<List<SupportTicketDto>> GetTicketsAsync(string mrNo);
@@ -639,33 +920,196 @@ namespace HospitalMobileAPPApi.Services
     public class SupportService : ISupportService
     {
         private readonly ISupportRepository _repository;
+        private readonly IAuditLogService _auditLogService;
+        private readonly IMobilePortalSchemaService _schemaService;
         private readonly SupportSettings _settings;
+        private readonly ILogger<SupportService> _logger;
 
-        public SupportService(ISupportRepository repository, IOptions<SupportSettings> settings)
+        public SupportService(
+            ISupportRepository repository,
+            IAuditLogService auditLogService,
+            IMobilePortalSchemaService schemaService,
+            IOptions<SupportSettings> settings,
+            ILogger<SupportService> logger)
         {
             _repository = repository;
+            _auditLogService = auditLogService;
+            _schemaService = schemaService;
             _settings = settings.Value;
+            _logger = logger;
         }
 
-        public SupportContactDto GetContactInfo() => new()
+        public async Task<SupportContactDto> GetContactInfoAsync()
         {
-            HospitalName = _settings.HospitalName,
-            Phone = _settings.Phone,
-            Email = _settings.Email,
-            Address = _settings.Address,
-            WorkingHours = _settings.WorkingHours,
-        };
+            try
+            {
+                await _schemaService.EnsureSupportContentSchemaAsync();
+                var fromDb = await _repository.GetContactAsync();
+                if (fromDb != null &&
+                    !string.IsNullOrWhiteSpace(fromDb.Phone) &&
+                    !string.IsNullOrWhiteSpace(fromDb.Email))
+                {
+                    return fromDb;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not load support contact from database; using appsettings fallback.");
+            }
 
-        public Task<List<FaqItem>> GetFaqAsync(string langCode, string? category) =>
-            _repository.GetFaqAsync(langCode, category);
+            return new SupportContactDto
+            {
+                HospitalName = _settings.HospitalName,
+                Phone = _settings.Phone,
+                Email = _settings.Email,
+                Address = _settings.Address,
+                WorkingHours = _settings.WorkingHours,
+            };
+        }
 
-        public Task<int> CreateTicketAsync(CreateSupportTicketRequest request) =>
-            _repository.CreateTicketAsync(request);
+        public async Task UpdateContactInfoAsync(SupportContactDto contact)
+        {
+            await _schemaService.EnsureSupportContentSchemaAsync();
+            contact.HospitalName = contact.HospitalName?.Trim() ?? string.Empty;
+            contact.Phone = contact.Phone?.Trim() ?? string.Empty;
+            contact.Email = contact.Email?.Trim() ?? string.Empty;
+            contact.Address = contact.Address?.Trim() ?? string.Empty;
+            contact.WorkingHours = contact.WorkingHours?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(contact.HospitalName) ||
+                string.IsNullOrWhiteSpace(contact.Phone) ||
+                string.IsNullOrWhiteSpace(contact.Email) ||
+                string.IsNullOrWhiteSpace(contact.Address) ||
+                string.IsNullOrWhiteSpace(contact.WorkingHours))
+            {
+                throw new InvalidOperationException(
+                    "Hospital name, phone, email, address, and working hours are required.");
+            }
+
+            await _repository.UpsertContactAsync(contact);
+        }
+
+        public async Task<List<FaqItem>> GetFaqAsync(string langCode, string? category)
+        {
+            try
+            {
+                await _schemaService.EnsureSupportContentSchemaAsync();
+                return await _repository.GetFaqAsync(langCode, category);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not load FAQ list");
+                return new List<FaqItem>();
+            }
+        }
+
+        public async Task<List<FaqAdminItem>> GetAllFaqsAdminAsync()
+        {
+            await _schemaService.EnsureSupportContentSchemaAsync();
+            return await _repository.GetAllFaqsAdminAsync();
+        }
+
+        public async Task<FaqAdminItem?> GetFaqByIdAsync(int faqId)
+        {
+            await _schemaService.EnsureSupportContentSchemaAsync();
+            return await _repository.GetFaqByIdAsync(faqId);
+        }
+
+        public async Task<int> CreateFaqAsync(FaqAdminItem item)
+        {
+            await _schemaService.EnsureSupportContentSchemaAsync();
+            ValidateFaq(item);
+            return await _repository.CreateFaqAsync(item);
+        }
+
+        public async Task<bool> UpdateFaqAsync(FaqAdminItem item)
+        {
+            await _schemaService.EnsureSupportContentSchemaAsync();
+            ValidateFaq(item);
+            return await _repository.UpdateFaqAsync(item);
+        }
+
+        public async Task<bool> DeleteFaqAsync(int faqId)
+        {
+            await _schemaService.EnsureSupportContentSchemaAsync();
+            return await _repository.DeleteFaqAsync(faqId);
+        }
+
+        public async Task<int> CreateTicketAsync(CreateSupportTicketRequest request)
+        {
+            request.ContactName = request.ContactName.Trim();
+            request.Category = string.IsNullOrWhiteSpace(request.Category)
+                ? "General"
+                : request.Category.Trim();
+            request.Subject = string.IsNullOrWhiteSpace(request.Subject)
+                ? request.Category
+                : request.Subject.Trim();
+            request.Description = request.Description.Trim();
+            if (!string.IsNullOrWhiteSpace(request.MrNo))
+            {
+                request.MrNo = request.MrNo.Trim();
+            }
+            if (!string.IsNullOrWhiteSpace(request.ContactPhone))
+            {
+                request.ContactPhone = request.ContactPhone.Trim();
+            }
+            if (!string.IsNullOrWhiteSpace(request.ContactEmail))
+            {
+                request.ContactEmail = request.ContactEmail.Trim();
+            }
+
+            var ticketId = await _repository.CreateTicketAsync(request);
+
+            _logger.LogWarning(
+                "STAFF_ALERT new support ticket #{TicketId} category={Category} subject={Subject} mrNo={MrNo} contact={Contact} notify={SupportEmail}",
+                ticketId,
+                request.Category,
+                request.Subject,
+                request.MrNo ?? "(guest)",
+                request.ContactName,
+                _settings.Email);
+
+            try
+            {
+                await _auditLogService.WriteAsync(new AuditLogEntry
+                {
+                    ActorId = request.MrNo ?? request.ContactName,
+                    ActorRole = string.IsNullOrWhiteSpace(request.MrNo) ? "Guest" : "Patient",
+                    Action = "SUPPORT_TICKET_CREATED",
+                    EntityType = "SupportTicket",
+                    EntityId = ticketId.ToString(),
+                    MrNo = request.MrNo,
+                    Details =
+                        $"Category={request.Category}; Subject={request.Subject}; " +
+                        $"NotifyStaff={_settings.Email}",
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to write audit for support ticket {TicketId}", ticketId);
+            }
+
+            return ticketId;
+        }
 
         public Task<SupportTicketDto?> GetTicketAsync(int ticketId, string? mrNo) =>
             _repository.GetTicketAsync(ticketId, mrNo);
 
         public Task<List<SupportTicketDto>> GetTicketsAsync(string mrNo) =>
             _repository.GetTicketsByMrNoAsync(mrNo.Trim());
+
+        private static void ValidateFaq(FaqAdminItem item)
+        {
+            item.Category = string.IsNullOrWhiteSpace(item.Category) ? "General" : item.Category.Trim();
+            item.QuestionEn = item.QuestionEn?.Trim() ?? string.Empty;
+            item.AnswerEn = item.AnswerEn?.Trim() ?? string.Empty;
+            item.QuestionUr = string.IsNullOrWhiteSpace(item.QuestionUr) ? null : item.QuestionUr.Trim();
+            item.AnswerUr = string.IsNullOrWhiteSpace(item.AnswerUr) ? null : item.AnswerUr.Trim();
+
+            if (string.IsNullOrWhiteSpace(item.QuestionEn) || string.IsNullOrWhiteSpace(item.AnswerEn))
+            {
+                throw new InvalidOperationException("English question and answer are required.");
+            }
+        }
     }
 }

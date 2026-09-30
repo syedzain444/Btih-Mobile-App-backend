@@ -14,8 +14,12 @@ namespace HospitalMobileAPPApi.Services
 
         public Task<LoginResponse?> LoginAsync(string contactNo, string password)
         {
-            // Business rules go here later
             return _repo.LoginAsync(contactNo, password);
+        }
+
+        public Task<LoginResponse?> LoginByMrNoAsync(string mrNo, string password)
+        {
+            return _repo.LoginByMrNoAsync(mrNo, password);
         }
         public Task<(string? MR_NO, string? CONTACT_NO)> VerifyPhoneNo(string? contactNo, string? mrno)
         {

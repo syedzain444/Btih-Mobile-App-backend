@@ -7,8 +7,8 @@ namespace HospitalMobileAPPApi.Models
         /// <example>010-002-152</example>
         public string MrNo { get; set; } = string.Empty;
 
-        /// <summary>New password (minimum 6 characters).</summary>
-        /// <example>newSecurePassword123</example>
+        /// <summary>New password — hospital policy: 8–64 chars with upper, lower, digit, special.</summary>
+        /// <example>NewPass@123</example>
         public string PatientPassword { get; set; } = string.Empty;
     }
 }

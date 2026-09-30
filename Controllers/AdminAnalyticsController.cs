@@ -7,7 +7,7 @@ namespace HospitalMobileAPPApi.Controllers
 {
     [ApiController]
     [Route("api/admin/analytics")]
-    [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+    [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
     [Tags("Admin")]
     public class AdminAnalyticsController : ControllerBase
     {

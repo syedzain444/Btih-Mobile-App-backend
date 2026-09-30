@@ -18,7 +18,7 @@
 
             await using var conn = new OracleConnection(connStr);
             await using var cmd = new OracleCommand(@"
-        SELECT pi.MR_NO, pm.FIRST_NAME
+        SELECT pi.MR_NO, pm.FIRST_NAME, pi.CONTACT_NO
         FROM PATIENT_MST pm
         INNER JOIN PATIENT_INFORMATION pi
             ON pi.MR_NO = pm.MR_NO
@@ -39,13 +39,14 @@
                     return new LoginResponse
                     {
                         MrNo = reader["MR_NO"]?.ToString(),
-                        FirstName = reader["FIRST_NAME"]?.ToString()
+                        FirstName = reader["FIRST_NAME"]?.ToString(),
+                        ContactNo = reader["CONTACT_NO"]?.ToString() ?? contactNo,
                     };
                 }
             }
 
             await using var mobileCmd = new OracleCommand(@"
-                SELECT MR_NO, FIRST_NAME
+                SELECT MR_NO, FIRST_NAME, CONTACT_NO
                 FROM MOBILE_PATIENT_REGISTRATION
                 WHERE CONTACT_NO = :CONTACT_NO
                   AND PATIENT_PASSWORD = :PATIENT_PASSWORD
@@ -62,7 +63,70 @@
                 {
                     MrNo = mobileReader["MR_NO"]?.ToString(),
                     FirstName = mobileReader["FIRST_NAME"]?.ToString(),
+                    ContactNo = mobileReader["CONTACT_NO"]?.ToString() ?? contactNo,
                 };
+            }
+
+            return null;
+        }
+
+        public async Task<LoginResponse?> LoginByMrNoAsync(string mrNo, string password)
+        {
+            if (string.IsNullOrWhiteSpace(mrNo)) return null;
+
+            var normalizedMr = mrNo.Trim();
+            var connStr = _configuration.GetConnectionString("HMISConnection");
+
+            await using var conn = new OracleConnection(connStr);
+            await conn.OpenAsync();
+
+            await using (var cmd = new OracleCommand(@"
+                SELECT pi.MR_NO, pm.FIRST_NAME, pi.CONTACT_NO
+                FROM PATIENT_MST pm
+                INNER JOIN PATIENT_INFORMATION pi
+                    ON pi.MR_NO = pm.MR_NO
+                WHERE UPPER(TRIM(pi.MR_NO)) = UPPER(TRIM(:MR_NO))
+                  AND pm.PATIENT_PASSWORD = :PATIENT_PASSWORD
+                  AND ROWNUM = 1", conn))
+            {
+                cmd.BindByName = true;
+                cmd.Parameters.Add(new OracleParameter("MR_NO", normalizedMr));
+                cmd.Parameters.Add(new OracleParameter("PATIENT_PASSWORD", password));
+
+                await using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    return new LoginResponse
+                    {
+                        MrNo = reader["MR_NO"]?.ToString(),
+                        FirstName = reader["FIRST_NAME"]?.ToString(),
+                        ContactNo = reader["CONTACT_NO"]?.ToString(),
+                    };
+                }
+            }
+
+            await using (var mobileCmd = new OracleCommand(@"
+                SELECT MR_NO, FIRST_NAME, CONTACT_NO
+                FROM MOBILE_PATIENT_REGISTRATION
+                WHERE UPPER(TRIM(MR_NO)) = UPPER(TRIM(:MR_NO))
+                  AND PATIENT_PASSWORD = :PATIENT_PASSWORD
+                  AND IS_ACTIVE = 'Y'
+                  AND ROWNUM = 1", conn))
+            {
+                mobileCmd.BindByName = true;
+                mobileCmd.Parameters.Add(new OracleParameter("MR_NO", normalizedMr));
+                mobileCmd.Parameters.Add(new OracleParameter("PATIENT_PASSWORD", password));
+
+                await using var mobileReader = await mobileCmd.ExecuteReaderAsync();
+                if (await mobileReader.ReadAsync())
+                {
+                    return new LoginResponse
+                    {
+                        MrNo = mobileReader["MR_NO"]?.ToString(),
+                        FirstName = mobileReader["FIRST_NAME"]?.ToString(),
+                        ContactNo = mobileReader["CONTACT_NO"]?.ToString(),
+                    };
+                }
             }
 
             return null;

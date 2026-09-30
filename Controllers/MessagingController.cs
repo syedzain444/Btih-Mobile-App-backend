@@ -147,6 +147,7 @@ namespace HospitalMobileAPPApi.Controllers
         }
 
         [HttpPost("threads/{threadId:int}/attachments")]
+        [Consumes("multipart/form-data")]
         [RequestSizeLimit(10485760)]
         public async Task<IActionResult> UploadAttachment(
             int threadId,

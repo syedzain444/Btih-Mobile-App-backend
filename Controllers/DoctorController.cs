@@ -34,26 +34,50 @@ namespace HospitalMobileAPPApi.Controllers
         public async Task<IActionResult> GetDoctors(int pageNumber = 1, int pageSize = 10)
         {
             if (pageNumber <= 0 || pageSize <= 0)
-                return BadRequest("Invalid pagination parameters");
+                return BadRequest(new { message = "Invalid pagination parameters" });
 
-            var (doctors, totalCount) = await _docService.GetDoctorsAsync(pageNumber, pageSize);
-
-            if (doctors == null || !doctors.Any())
-                return NotFound(new { message = "No doctors found" });
-
-            var response = new
+            try
             {
-                Data = doctors,
-                Pagination = new
-                {
-                    PageNumber = pageNumber,
-                    PageSize = pageSize,
-                    TotalRecords = totalCount,
-                    TotalPages = (int)Math.Ceiling((double)totalCount / pageSize)
-                }
-            };
+                var (doctors, totalCount) = await _docService.GetDoctorsAsync(pageNumber, pageSize);
 
-            return Ok(response);
+                if (doctors == null || doctors.Count == 0)
+                {
+                    return Ok(new
+                    {
+                        Data = Array.Empty<object>(),
+                        Pagination = new
+                        {
+                            PageNumber = pageNumber,
+                            PageSize = pageSize,
+                            TotalRecords = totalCount,
+                            TotalPages = totalCount <= 0
+                                ? 0
+                                : (int)Math.Ceiling((double)totalCount / pageSize),
+                        },
+                        message = totalCount == 0 ? "No doctors found" : "No doctors on this page",
+                    });
+                }
+
+                return Ok(new
+                {
+                    Data = doctors,
+                    Pagination = new
+                    {
+                        PageNumber = pageNumber,
+                        PageSize = pageSize,
+                        TotalRecords = totalCount,
+                        TotalPages = (int)Math.Ceiling((double)totalCount / pageSize),
+                    },
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+                {
+                    message = "Doctor directory temporarily unavailable",
+                    detail = ex.Message,
+                });
+            }
         }
 
         [HttpGet("{doctorId}/schedule")]
