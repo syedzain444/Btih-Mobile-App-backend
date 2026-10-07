@@ -1,31 +1,29 @@
--- REQ-2026-025 / TC-025: Admin panel RBAC roles
--- Roles: Admin (full), Staff (operations), Reception (front desk — no Users/Reports)
+-- REQ-2026-025 / TC-025 + dynamic RBAC
+-- Roles, permissions, and admin users are managed in the Admin Panel:
+--   System → Access control (users) / Roles & permissions
 --
--- Create or update a Reception user (adjust password hash via API bootstrap or PasswordHasher).
--- Prefer creating via POST /api/admin/auth/bootstrap with Role = "Reception" when secret is set.
+-- Tables (auto-created by API EnsureAdminRbacSchemaAsync):
+--   MOBILE_ADMIN_USER
+--   MOBILE_ADMIN_ROLE
+--   MOBILE_ADMIN_PERMISSION
+--   MOBILE_ADMIN_ROLE_PERM
 --
--- Example: set an existing user to Reception for testing TC-025:
+-- Default seeded roles:
+--   Admin      — full access including AccessControl
+--   Staff      — operations (refills, tickets, promotions, offers, help)
+--   Reception  — dashboard, messages, appointments
+--
+-- Prefer managing users/roles in the UI. SQL examples below are for emergencies only.
 
+-- Promote an existing user to Admin:
 -- UPDATE MOBILE_ADMIN_USER
---    SET ROLE = 'Reception',
---        IS_ACTIVE = 'Y'
---  WHERE UPPER(USERNAME) = UPPER('reception');
-
--- Example: set an existing user to Admin:
-
--- UPDATE MOBILE_ADMIN_USER
---    SET ROLE = 'Admin',
---        IS_ACTIVE = 'Y'
+--    SET ROLE = 'Admin', IS_ACTIVE = 'Y'
 --  WHERE UPPER(USERNAME) = UPPER('admin');
 
--- Example: set operational staff:
-
+-- Set Reception for TC-025 testing:
 -- UPDATE MOBILE_ADMIN_USER
---    SET ROLE = 'Staff',
---        IS_ACTIVE = 'Y'
---  WHERE UPPER(USERNAME) = UPPER('staff');
+--    SET ROLE = 'Reception', IS_ACTIVE = 'Y'
+--  WHERE UPPER(USERNAME) = UPPER('reception');
 
--- Permission matrix (menus + API):
--- Dashboard / Messages / Appointments : Admin, Staff, Reception
--- Users / Reports / Analytics / Audit : Admin only
--- Refills / Tickets / Promotions / Help Content : Admin, Staff
+-- After changing ROLE in SQL, the user must log out and log in again
+-- so the session picks up the new permission list.

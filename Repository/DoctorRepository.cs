@@ -219,6 +219,8 @@ SELECT * FROM (
 
         public async Task<List<DoctorSchedule>> GetDoctorScheduleAsync(int doctorId)
         {
+            const int slotMinutes = 15;
+
             var query = @"
                 SELECT d.DOCTOR_NAME, d.DOCTOR_ID, os.OPD_ID, wd.DAY_NAME, 
                        os.TIME_FROM AS SLOT_TIME_FROM, os.TIME_TO AS SLOT_TIME_TO,
@@ -237,21 +239,69 @@ SELECT * FROM (
 
             foreach (var schedule in scheduleData)
             {
-                doctors.Add(new DoctorSchedule
+                DateTime? timeFrom = schedule.SLOT_TIME_FROM != null
+                    ? DateTime.Parse(schedule.SLOT_TIME_FROM.ToString())
+                    : null;
+                DateTime? timeTo = schedule.SLOT_TIME_TO != null
+                    ? DateTime.Parse(schedule.SLOT_TIME_TO.ToString())
+                    : null;
+
+                var doctorIdValue = Convert.ToInt32(schedule.DOCTOR_ID);
+                var doctorName = schedule.DOCTOR_NAME?.ToString();
+                var dayName = schedule.DAY_NAME?.ToString();
+                var weekId = Convert.ToInt32(schedule.WEEK_ID);
+                var charges = Convert.ToInt32(schedule.OPD_CHARGES);
+
+                if (timeFrom == null || timeTo == null || timeTo <= timeFrom)
                 {
-                    SerialNumber = serial++,
-                    Doctor_ID = Convert.ToInt32(schedule.DOCTOR_ID),
-                    DoctorName = schedule.DOCTOR_NAME?.ToString(),
-                    DayName = schedule.DAY_NAME?.ToString(),
-                    TimeFrom = schedule.SLOT_TIME_FROM != null
-                        ? DateTime.Parse(schedule.SLOT_TIME_FROM.ToString())
-                        : (DateTime?)null,
-                    TimeTo = schedule.SLOT_TIME_TO != null
-                        ? DateTime.Parse(schedule.SLOT_TIME_TO.ToString())
-                        : (DateTime?)null,
-                    Week_ID = Convert.ToInt32(schedule.WEEK_ID),
-                    OPD_Charges = Convert.ToInt32(schedule.OPD_CHARGES),
-                });
+                    doctors.Add(new DoctorSchedule
+                    {
+                        SerialNumber = serial++,
+                        Doctor_ID = doctorIdValue,
+                        DoctorName = doctorName,
+                        DayName = dayName,
+                        TimeFrom = timeFrom,
+                        TimeTo = timeTo,
+                        Week_ID = weekId,
+                        OPD_Charges = charges,
+                    });
+                    continue;
+                }
+
+                // Expand OPD windows (often stored as hourly blocks) into 15-minute booking slots.
+                var cursor = timeFrom.Value;
+                var end = timeTo.Value;
+                while (cursor < end)
+                {
+                    var slotEnd = cursor.AddMinutes(slotMinutes);
+                    if (slotEnd > end)
+                    {
+                        slotEnd = end;
+                    }
+
+                    // Skip leftover fragments shorter than a full slot when the window is not aligned.
+                    var spanMinutes = (slotEnd - cursor).TotalMinutes;
+                    if (spanMinutes < slotMinutes && cursor > timeFrom.Value)
+                    {
+                        break;
+                    }
+
+                    doctors.Add(new DoctorSchedule
+                    {
+                        SerialNumber = serial++,
+                        Doctor_ID = doctorIdValue,
+                        DoctorName = doctorName,
+                        DayName = dayName,
+                        TimeFrom = cursor,
+                        TimeTo = cursor.AddMinutes(slotMinutes) <= end
+                            ? cursor.AddMinutes(slotMinutes)
+                            : end,
+                        Week_ID = weekId,
+                        OPD_Charges = charges,
+                    });
+
+                    cursor = cursor.AddMinutes(slotMinutes);
+                }
             }
 
             return doctors;

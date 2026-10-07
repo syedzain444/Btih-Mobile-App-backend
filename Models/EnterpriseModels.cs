@@ -98,6 +98,7 @@ namespace HospitalMobileAPPApi.Models
         public string? DisplayName { get; set; }
         public string Role { get; set; } = string.Empty;
         public bool IsActive { get; set; }
+        public List<string> Permissions { get; set; } = new();
     }
 
     public class AdminReplyMessageRequest

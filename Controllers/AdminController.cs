@@ -1,3 +1,4 @@
+using HospitalMobileAPPApi.Filters;
 using HospitalMobileAPPApi.Helpers;
 using HospitalMobileAPPApi.Models;
 using HospitalMobileAPPApi.Services;
@@ -98,7 +99,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>Paginated portal user list with optional search (Admin only).</summary>
         [HttpGet("users")]
-        [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+        [RequireAdminModule(AdminModules.Users)]
         public async Task<IActionResult> GetUsers(
             [FromQuery] string? search,
             [FromQuery] int page = 1,
@@ -174,7 +175,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>Pending medication refill requests (Admin / Staff).</summary>
         [HttpGet("refills/pending")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.Refills)]
         public async Task<IActionResult> GetPendingRefills()
         {
             var refills = await _adminService.GetPendingRefillsAsync();
@@ -183,7 +184,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>Update refill request status (Admin / Staff).</summary>
         [HttpPut("refills/status")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.Refills)]
         public async Task<IActionResult> UpdateRefill([FromBody] AdminUpdateRefillRequest request)
         {
             if (request.RefillId <= 0 || string.IsNullOrWhiteSpace(request.Status))
@@ -199,7 +200,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>Open support tickets (Admin / Staff).</summary>
         [HttpGet("support/tickets")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.Tickets)]
         public async Task<IActionResult> GetOpenTickets()
         {
             var tickets = await _adminService.GetOpenTicketsAsync();
@@ -208,7 +209,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>Update support ticket status and notes (Admin / Staff).</summary>
         [HttpPut("support/tickets")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.Tickets)]
         public async Task<IActionResult> UpdateTicket([FromBody] AdminUpdateTicketRequest request)
         {
             if (request.TicketId <= 0 || string.IsNullOrWhiteSpace(request.Status))
@@ -224,7 +225,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>Recent audit log entries (admin only).</summary>
         [HttpGet("audit")]
-        [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
+        [RequireAdminModule(AdminModules.Audit)]
         public async Task<IActionResult> GetAuditLog([FromQuery] int take = 100, [FromQuery] string? mrNo = null)
         {
             var logs = await _auditLogService.GetRecentAsync(take, mrNo);
@@ -233,7 +234,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>List all launch promotions (Admin / Staff) plus app display limit.</summary>
         [HttpGet("promotions")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.Promotions)]
         public async Task<IActionResult> GetPromotions(
             [FromServices] IPromotionService promotionService,
             [FromServices] IMobilePortalSchemaService schemaService)
@@ -258,7 +259,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>How many active promotions the mobile app should show (1–50).</summary>
         [HttpPut("promotions/display-limit")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.Promotions)]
         public async Task<IActionResult> SetPromotionDisplayLimit(
             [FromBody] PromotionDisplayLimitRequest request,
             [FromServices] IPromotionService promotionService,
@@ -288,7 +289,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>Create a launch promotion with image upload.</summary>
         [HttpPost("promotions")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.Promotions)]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(8_000_000)]
         public async Task<IActionResult> CreatePromotion(
@@ -369,7 +370,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>Update promotion metadata; optional new image.</summary>
         [HttpPut("promotions/{id:int}")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.Promotions)]
         [Consumes("multipart/form-data")]
         [RequestSizeLimit(8_000_000)]
         public async Task<IActionResult> UpdatePromotion(
@@ -459,7 +460,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>Delete a promotion.</summary>
         [HttpDelete("promotions/{id:int}")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.Promotions)]
         public async Task<IActionResult> DeletePromotion(
             int id,
             [FromServices] IPromotionService promotionService)
@@ -477,9 +478,240 @@ namespace HospitalMobileAPPApi.Controllers
             }
         }
 
+        /// <summary>List all offers &amp; packages (Admin / Staff).</summary>
+        [HttpGet("offers")]
+        [RequireAdminModule(AdminModules.Offers)]
+        public async Task<IActionResult> GetOffers(
+            [FromServices] IOfferService offerService,
+            [FromServices] IMobilePortalSchemaService schemaService)
+        {
+            try
+            {
+                await schemaService.EnsureOfferSchemaAsync();
+                var items = await offerService.GetAllAsync();
+                return Ok(new
+                {
+                    success = true,
+                    count = items.Count,
+                    data = items.Select(MapOfferAdmin),
+                });
+            }
+            catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
+            {
+                return StatusCode(statusCode, new { success = false, message = dbMessage });
+            }
+        }
+
+        /// <summary>Create an offer/package with optional image.</summary>
+        [HttpPost("offers")]
+        [RequireAdminModule(AdminModules.Offers)]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(8_000_000)]
+        public async Task<IActionResult> CreateOffer(
+            [FromForm] OfferMultipartForm form,
+            IFormFile? image,
+            [FromServices] IOfferService offerService,
+            [FromServices] IWebHostEnvironment env,
+            [FromServices] IMobilePortalSchemaService schemaService)
+        {
+            if (string.IsNullOrWhiteSpace(form.Title))
+            {
+                return BadRequest(new { success = false, message = "Title is required" });
+            }
+
+            try
+            {
+                await schemaService.EnsureOfferSchemaAsync();
+                string? imageUrl = null;
+                if (image != null && image.Length > 0)
+                {
+                    imageUrl = await SaveOfferImageAsync(image, env);
+                }
+
+                var created = await offerService.CreateAsync(new MobileOfferRecord
+                {
+                    Title = form.Title.Trim(),
+                    Subtitle = form.Subtitle,
+                    Description = form.Description,
+                    Category = string.IsNullOrWhiteSpace(form.Category) ? "Package" : form.Category.Trim(),
+                    ImageUrl = imageUrl,
+                    OriginalPrice = form.ParseOriginalPrice(),
+                    OfferPrice = form.ParseOfferPrice(),
+                    Currency = string.IsNullOrWhiteSpace(form.Currency) ? "PKR" : form.Currency.Trim(),
+                    Highlights = form.Highlights,
+                    CtaLabel = string.IsNullOrWhiteSpace(form.CtaLabel) ? "Enquire" : form.CtaLabel.Trim(),
+                    CtaPhone = form.CtaPhone,
+                    SortOrder = form.SortOrder,
+                    IsActive = form.ParseIsActive(),
+                    StartAt = form.StartAt,
+                    EndAt = form.EndAt,
+                });
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Offer created",
+                    data = MapOfferAdmin(created),
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    success = false,
+                    message = "IIS cannot write to wwwroot/uploads/offers. Grant Modify to IIS_IUSRS and the app pool identity.",
+                    detail = ex.Message,
+                });
+            }
+            catch (IOException ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    success = false,
+                    message = "Could not write offer image. Check uploads/offers folder permissions.",
+                    detail = ex.Message,
+                });
+            }
+            catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
+            {
+                return StatusCode(statusCode, new { success = false, message = dbMessage });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    success = false,
+                    message = "Could not save offer. Check API logs and uploads folder permissions.",
+                    detail = ex.Message,
+                });
+            }
+        }
+
+        /// <summary>Update offer/package; optional new image.</summary>
+        [HttpPut("offers/{id:int}")]
+        [RequireAdminModule(AdminModules.Offers)]
+        [Consumes("multipart/form-data")]
+        [RequestSizeLimit(8_000_000)]
+        public async Task<IActionResult> UpdateOffer(
+            int id,
+            [FromForm] OfferMultipartForm form,
+            IFormFile? image,
+            [FromServices] IOfferService offerService,
+            [FromServices] IWebHostEnvironment env,
+            [FromServices] IMobilePortalSchemaService schemaService)
+        {
+            if (string.IsNullOrWhiteSpace(form.Title))
+            {
+                return BadRequest(new { success = false, message = "Title is required" });
+            }
+
+            try
+            {
+                await schemaService.EnsureOfferSchemaAsync();
+                var existing = await offerService.GetByIdAsync(id);
+                if (existing == null)
+                {
+                    return NotFound(new { success = false, message = "Offer not found" });
+                }
+
+                if (image != null && image.Length > 0)
+                {
+                    existing.ImageUrl = await SaveOfferImageAsync(image, env);
+                }
+
+                existing.Title = form.Title.Trim();
+                existing.Subtitle = form.Subtitle;
+                existing.Description = form.Description;
+                existing.Category = string.IsNullOrWhiteSpace(form.Category) ? "Package" : form.Category.Trim();
+                existing.OriginalPrice = form.ParseOriginalPrice();
+                existing.OfferPrice = form.ParseOfferPrice();
+                existing.Currency = string.IsNullOrWhiteSpace(form.Currency) ? "PKR" : form.Currency.Trim();
+                existing.Highlights = form.Highlights;
+                existing.CtaLabel = string.IsNullOrWhiteSpace(form.CtaLabel) ? "Enquire" : form.CtaLabel.Trim();
+                existing.CtaPhone = form.CtaPhone;
+                existing.SortOrder = form.SortOrder;
+                existing.IsActive = form.ParseIsActive();
+                existing.StartAt = form.StartAt;
+                existing.EndAt = form.EndAt;
+
+                var updated = await offerService.UpdateAsync(existing);
+                if (!updated)
+                {
+                    return NotFound(new { success = false, message = "Offer not found" });
+                }
+
+                var refreshed = await offerService.GetByIdAsync(id);
+                return Ok(new
+                {
+                    success = true,
+                    message = "Offer updated",
+                    data = refreshed == null ? null : MapOfferAdmin(refreshed),
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    success = false,
+                    message = "IIS cannot write to wwwroot/uploads/offers. Grant Modify to IIS_IUSRS and the app pool identity.",
+                    detail = ex.Message,
+                });
+            }
+            catch (IOException ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    success = false,
+                    message = "Could not write offer image. Check uploads/offers folder permissions.",
+                    detail = ex.Message,
+                });
+            }
+            catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
+            {
+                return StatusCode(statusCode, new { success = false, message = dbMessage });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, new
+                {
+                    success = false,
+                    message = "Could not update offer. Check API logs and uploads folder permissions.",
+                    detail = ex.Message,
+                });
+            }
+        }
+
+        /// <summary>Delete an offer/package.</summary>
+        [HttpDelete("offers/{id:int}")]
+        [RequireAdminModule(AdminModules.Offers)]
+        public async Task<IActionResult> DeleteOffer(
+            int id,
+            [FromServices] IOfferService offerService)
+        {
+            try
+            {
+                var deleted = await offerService.DeleteAsync(id);
+                return deleted
+                    ? Ok(new { success = true, message = "Offer deleted" })
+                    : NotFound(new { success = false, message = "Offer not found" });
+            }
+            catch (Exception ex) when (DatabaseExceptionHelper.TryGetFriendlyMessage(ex, out var dbMessage, out var statusCode))
+            {
+                return StatusCode(statusCode, new { success = false, message = dbMessage });
+            }
+        }
+
         /// <summary>Help &amp; Support contact details shown in the mobile app.</summary>
         [HttpGet("support/contact")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.SupportContent)]
         public async Task<IActionResult> GetSupportContact([FromServices] ISupportService supportService)
         {
             var contact = await supportService.GetContactInfoAsync();
@@ -488,7 +720,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>Update Call Us / Email Us / Visit Us / Operating Hours.</summary>
         [HttpPut("support/contact")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.SupportContent)]
         public async Task<IActionResult> UpdateSupportContact(
             [FromBody] SupportContactDto request,
             [FromServices] ISupportService supportService)
@@ -516,7 +748,7 @@ namespace HospitalMobileAPPApi.Controllers
 
         /// <summary>List all FAQ entries (including inactive) for admin editing.</summary>
         [HttpGet("support/faq")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.SupportContent)]
         public async Task<IActionResult> GetSupportFaqs([FromServices] ISupportService supportService)
         {
             var items = await supportService.GetAllFaqsAdminAsync();
@@ -524,7 +756,7 @@ namespace HospitalMobileAPPApi.Controllers
         }
 
         [HttpPost("support/faq")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.SupportContent)]
         public async Task<IActionResult> CreateSupportFaq(
             [FromBody] FaqAdminItem request,
             [FromServices] ISupportService supportService)
@@ -551,7 +783,7 @@ namespace HospitalMobileAPPApi.Controllers
         }
 
         [HttpPut("support/faq/{id:int}")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.SupportContent)]
         public async Task<IActionResult> UpdateSupportFaq(
             int id,
             [FromBody] FaqAdminItem request,
@@ -585,7 +817,7 @@ namespace HospitalMobileAPPApi.Controllers
         }
 
         [HttpDelete("support/faq/{id:int}")]
-        [Authorize(Policy = AuthorizationPolicies.StaffOrAdmin)]
+        [RequireAdminModule(AdminModules.SupportContent)]
         public async Task<IActionResult> DeleteSupportFaq(
             int id,
             [FromServices] ISupportService supportService)
@@ -610,7 +842,39 @@ namespace HospitalMobileAPPApi.Controllers
             updatedAt = p.UpdatedAt,
         };
 
-        private static async Task<string> SavePromotionImageAsync(IFormFile image, IWebHostEnvironment env)
+        private static object MapOfferAdmin(MobileOfferRecord o) => new
+        {
+            offerId = o.OfferId,
+            title = o.Title,
+            subtitle = o.Subtitle,
+            description = o.Description,
+            category = o.Category,
+            imageUrl = o.ImageUrl,
+            originalPrice = o.OriginalPrice,
+            offerPrice = o.OfferPrice,
+            currency = o.Currency,
+            highlights = o.Highlights,
+            highlightList = o.HighlightList,
+            ctaLabel = o.CtaLabel,
+            ctaPhone = o.CtaPhone,
+            sortOrder = o.SortOrder,
+            isActive = o.IsActive,
+            startAt = o.StartAt,
+            endAt = o.EndAt,
+            createdAt = o.CreatedAt,
+            updatedAt = o.UpdatedAt,
+        };
+
+        private static async Task<string> SavePromotionImageAsync(IFormFile image, IWebHostEnvironment env) =>
+            await SaveCatalogImageAsync(image, env, "promotions");
+
+        private static async Task<string> SaveOfferImageAsync(IFormFile image, IWebHostEnvironment env) =>
+            await SaveCatalogImageAsync(image, env, "offers");
+
+        private static async Task<string> SaveCatalogImageAsync(
+            IFormFile image,
+            IWebHostEnvironment env,
+            string folderName)
         {
             var ext = Path.GetExtension(image.FileName).ToLowerInvariant();
             var allowed = new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
@@ -630,7 +894,7 @@ namespace HospitalMobileAPPApi.Controllers
                 webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
             }
 
-            var folder = Path.Combine(webRoot, "uploads", "promotions");
+            var folder = Path.Combine(webRoot, "uploads", folderName);
             Directory.CreateDirectory(folder);
 
             var fileName = $"{Guid.NewGuid():N}{ext}";
@@ -640,7 +904,7 @@ namespace HospitalMobileAPPApi.Controllers
                 await image.CopyToAsync(stream);
             }
 
-            return $"/uploads/promotions/{fileName}";
+            return $"/uploads/{folderName}/{fileName}";
         }
     }
 }

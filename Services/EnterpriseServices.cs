@@ -362,6 +362,7 @@ namespace HospitalMobileAPPApi.Services
         private readonly ISmsService _smsService;
         private readonly IJwtService _jwtService;
         private readonly IAppointmentPrepService _appointmentPrepService;
+        private readonly IRbacService _rbacService;
         private readonly AdminSettings _adminSettings;
         private readonly ILogger<AdminService> _logger;
 
@@ -373,6 +374,7 @@ namespace HospitalMobileAPPApi.Services
             ISmsService smsService,
             IJwtService jwtService,
             IAppointmentPrepService appointmentPrepService,
+            IRbacService rbacService,
             IOptions<AdminSettings> adminSettings,
             ILogger<AdminService> logger)
         {
@@ -383,12 +385,22 @@ namespace HospitalMobileAPPApi.Services
             _smsService = smsService;
             _jwtService = jwtService;
             _appointmentPrepService = appointmentPrepService;
+            _rbacService = rbacService;
             _adminSettings = adminSettings.Value;
             _logger = logger;
         }
 
         public async Task<(bool Success, string Message, JwtTokenResult? Token, AdminUserDto? User)> LoginAsync(AdminLoginRequest request)
         {
+            try
+            {
+                await _rbacService.EnsureSchemaAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "RBAC schema ensure failed during admin login");
+            }
+
             var user = await _adminRepository.GetByUsernameAsync(request.Username.Trim());
             if (user == null)
             {
@@ -403,13 +415,29 @@ namespace HospitalMobileAPPApi.Services
                 return (false, "Invalid username or password", null, null);
             }
 
+            // Prefer DB role code; fall back to known portal roles
+            var roleCode = user.Role?.Trim() ?? AppRoles.Staff;
+            var roleRecord = (await _rbacService.GetRolesAsync(false))
+                .FirstOrDefault(r => string.Equals(r.Code, roleCode, StringComparison.OrdinalIgnoreCase));
+            if (roleRecord != null)
+            {
+                roleCode = roleRecord.Code;
+            }
+            else if (AppRoles.IsPortalRole(roleCode))
+            {
+                roleCode = AppRoles.NormalizePortalRole(roleCode);
+            }
+
+            user.Role = roleCode;
+            user.Permissions = await _rbacService.GetModulesForRoleAsync(roleCode);
+
             var token = _jwtService.GenerateToken(
                 $"admin:{user.AdminId}",
                 user.Username,
-                AppRoles.NormalizePortalRole(user.Role),
-                _adminSettings.TokenExpiryMinutes);
+                roleCode,
+                _adminSettings.TokenExpiryMinutes,
+                isAdminPortal: true);
 
-            user.Role = AppRoles.NormalizePortalRole(user.Role);
             return (true, "Login successful", token, user);
         }
 

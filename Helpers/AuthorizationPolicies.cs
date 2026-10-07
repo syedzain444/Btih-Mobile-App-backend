@@ -57,7 +57,26 @@ namespace HospitalMobileAPPApi.Helpers
         public const string Refills = "Refills";
         public const string Tickets = "Tickets";
         public const string Promotions = "Promotions";
+        public const string Offers = "Offers";
         public const string SupportContent = "SupportContent";
         public const string Audit = "Audit";
+        public const string AccessControl = "AccessControl";
+
+        public static readonly (string Key, string Name, string Description, int Sort)[] Catalog =
+        [
+            (Dashboard, "Dashboard", "Overview and operational summary", 10),
+            (Messages, "Messages", "Patient messaging inbox", 20),
+            (Appointments, "Appointments", "Appointment queue and approvals", 30),
+            (Users, "Patients", "Patient directory", 40),
+            (Refills, "Refills", "Medication refill requests", 50),
+            (Tickets, "Support tickets", "Complaints and support tickets", 60),
+            (Promotions, "Promotions", "App splash promotions", 70),
+            (Offers, "Offers & Packages", "Health packages shown in the app", 80),
+            (SupportContent, "Help content", "FAQs and support contact details", 90),
+            (Reports, "Reports & audit", "Operational reports and audit log", 100),
+            (Analytics, "Analytics", "Usage analytics widgets", 110),
+            (Audit, "Audit log", "Security and change audit trail", 120),
+            (AccessControl, "Access control", "Manage admin users, roles, and permissions", 130),
+        ];
     }
 }

@@ -19,7 +19,8 @@ namespace HospitalMobileAPPApi.Services
             string userId,
             string username,
             string? role = null,
-            int? expiryMinutes = null)
+            int? expiryMinutes = null,
+            bool isAdminPortal = false)
         {
             var jwtSettings = _configuration.GetSection("JwtSettings");
 
@@ -44,6 +45,11 @@ namespace HospitalMobileAPPApi.Services
             if (!string.IsNullOrWhiteSpace(role))
             {
                 claims.Add(new Claim(ClaimTypes.Role, role));
+            }
+
+            if (isAdminPortal)
+            {
+                claims.Add(new Claim("admin_portal", "true"));
             }
 
             var token = new JwtSecurityToken(

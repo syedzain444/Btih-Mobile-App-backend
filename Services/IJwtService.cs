@@ -8,6 +8,7 @@ namespace HospitalMobileAPPApi.Services
             string userId,
             string username,
             string? role = null,
-            int? expiryMinutes = null);
+            int? expiryMinutes = null,
+            bool isAdminPortal = false);
     }
 }

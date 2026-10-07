@@ -127,6 +127,8 @@ builder.Services.AddScoped<IAppointmentConfirmationRepository, AppointmentConfir
 builder.Services.AddScoped<IAppointmentConfirmationService, AppointmentConfirmationService>();
 builder.Services.AddScoped<IAdminRepository, AdminRepository>();
 builder.Services.AddScoped<IAdminPortalRepository, AdminPortalRepository>();
+builder.Services.AddScoped<IRbacRepository, RbacRepository>();
+builder.Services.AddScoped<IRbacService, RbacService>();
 builder.Services.AddHttpClient(nameof(SmsService), client =>
 {
     var timeoutSeconds = builder.Configuration.GetSection(SmsSettings.SectionName).GetValue<int?>("TimeoutSeconds") ?? 30;
@@ -153,6 +155,8 @@ builder.Services.AddScoped<IContentRepository, ContentRepository>();
 builder.Services.AddScoped<IContentService, ContentService>();
 builder.Services.AddScoped<IPromotionRepository, PromotionRepository>();
 builder.Services.AddScoped<IPromotionService, PromotionService>();
+builder.Services.AddScoped<IOfferRepository, OfferRepository>();
+builder.Services.AddScoped<IOfferService, OfferService>();
 builder.Services.AddScoped<ISupportRepository, SupportRepository>();
 builder.Services.AddScoped<ISupportService, SupportService>();
 builder.Services.AddScoped<IAnalyticsRepository, AnalyticsRepository>();
@@ -193,12 +197,18 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy(AuthorizationPolicies.StaffOrAdmin, policy =>
         policy.RequireRole(AppRoles.Admin, AppRoles.Staff));
 
+    // Any authenticated admin-portal JWT (supports custom roles from RBAC)
     options.AddPolicy(AuthorizationPolicies.PortalAccess, policy =>
-        policy.RequireRole(AppRoles.Admin, AppRoles.Staff, AppRoles.Reception));
+        policy.RequireAssertion(ctx =>
+            ctx.User.HasClaim("admin_portal", "true") ||
+            ctx.User.IsInRole(AppRoles.Admin) ||
+            ctx.User.IsInRole(AppRoles.Staff) ||
+            ctx.User.IsInRole(AppRoles.Reception)));
 
     options.AddPolicy(AuthorizationPolicies.PatientOnly, policy =>
         policy.RequireAssertion(context =>
             context.User.Identity?.IsAuthenticated == true &&
+            !context.User.HasClaim("admin_portal", "true") &&
             (context.User.IsInRole(AppRoles.Patient) ||
              (!context.User.IsInRole(AppRoles.Admin) &&
               !context.User.IsInRole(AppRoles.Staff) &&
@@ -291,6 +301,26 @@ else
             var schemaService = scope.ServiceProvider.GetRequiredService<IMobilePortalSchemaService>();
             await schemaService.EnsurePromotionSchemaAsync();
             app.Logger.LogInformation("MOBILE_PROMOTION schema verified.");
+
+            try
+            {
+                await schemaService.EnsureOfferSchemaAsync();
+                app.Logger.LogInformation("MOBILE_OFFER schema verified.");
+            }
+            catch (Exception offerEx)
+            {
+                app.Logger.LogWarning(offerEx, "Could not ensure MOBILE_OFFER schema at startup.");
+            }
+
+            try
+            {
+                await schemaService.EnsureAdminRbacSchemaAsync();
+                app.Logger.LogInformation("Admin RBAC schema verified.");
+            }
+            catch (Exception rbacEx)
+            {
+                app.Logger.LogWarning(rbacEx, "Could not ensure Admin RBAC schema at startup.");
+            }
 
             try
             {
@@ -404,15 +434,35 @@ if (enableSwagger)
 
 var webRoot = app.Environment.WebRootPath
     ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
-Directory.CreateDirectory(webRoot);
-Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "promotions"));
+try
+{
+    Directory.CreateDirectory(webRoot);
+    Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "promotions"));
+    Directory.CreateDirectory(Path.Combine(webRoot, "uploads", "offers"));
+}
+catch (Exception ex)
+{
+    // IIS AppPool often cannot create folders under inetpub\wwwroot — do not fail startup.
+    app.Logger.LogWarning(ex,
+        "Could not create wwwroot upload folders. Grant Modify on wwwroot\\uploads to the app pool identity.");
+}
 
 // Profile photos live under ProgramData so IIS AppPool can write
 // (inetpub\wwwroot is often locked down → "Access to the path ... is denied").
-var profilePhotoRoot = HospitalMobileAPPApi.Helpers.ProfilePhotoStorage.EnsureRoot(
-    app.Configuration,
-    app.Environment);
-app.Logger.LogInformation("Profile photo storage: {ProfilePhotoRoot}", profilePhotoRoot);
+string profilePhotoRoot;
+try
+{
+    profilePhotoRoot = HospitalMobileAPPApi.Helpers.ProfilePhotoStorage.EnsureRoot(
+        app.Configuration,
+        app.Environment);
+    app.Logger.LogInformation("Profile photo storage: {ProfilePhotoRoot}", profilePhotoRoot);
+}
+catch (Exception ex)
+{
+    app.Logger.LogError(ex, "Profile photo storage init failed; falling back to content-root uploads.");
+    profilePhotoRoot = Path.Combine(app.Environment.ContentRootPath, "uploads", "profiles");
+    Directory.CreateDirectory(profilePhotoRoot);
+}
 
 app.UseStaticFiles();
 app.UseStaticFiles(new StaticFileOptions
